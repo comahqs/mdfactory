@@ -5,6 +5,8 @@
 #include <map>
 #include <vector>
 
+
+
 class adapter_gb28181 : public plugin, public std::enable_shared_from_this<adapter_gb28181>
 {
 public:
@@ -32,6 +34,7 @@ protected:
     virtual bool remove_char(const char** pp_start, const char** pp_end, const char s);
     virtual bool remove_rn(const char** pp_start, const char** pp_end);
     virtual bool decode_kv(std::map<std::string, std::string>& kv, const std::string& tag, const char **pp_line_start, const char *p_line_end, const char s);
+    virtual int encode_header(std::stringstream& stream, const int& code, const std::string& action, const info_param_ptr& p_param, const info_net_proxy_ptr& p_info);
 
     std::map<std::string, info_net_proxy_ptr> m_proxys;
     std::string m_realm = "123456";

@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 2.8)
+﻿cmake_minimum_required(VERSION 2.8)
 
 #在项目中显示所有源码
 file(GLOB files_src ./src/*.cpp ./src/*.h)
@@ -15,8 +15,9 @@ include_directories("C:/Qt/Qt5.12.2/Tools/mingw730_64/include")
 link_directories("C:/Qt/Qt5.12.2/Tools/mingw730_64/x86_64-w64-mingw32/lib")
 link_directories("C:/Qt/Qt5.12.2/Tools/mingw730_64/lib")
 
-include_directories("D:/boost_1_71_0")
-link_directories("D:/boost_1_71_0/lib/mingw64")
+
+link_directories("D:/linux_boost_1_71_0/lib")
+include_directories("D:/linux_boost_1_71_0/include")
 
 add_definitions(-DBOOST_LOCALE_HIDE_AUTO_PTR)
 

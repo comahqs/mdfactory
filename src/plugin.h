@@ -5,6 +5,8 @@
 #include <functional>
 #include <vector>
 #include <boost/asio.hpp>
+#include <boost/shared_array.hpp>
+#include <rapidxml/rapidxml.hpp>
 
 typedef std::shared_ptr<std::vector<unsigned char>> frame_ptr;
 typedef std::shared_ptr<boost::asio::io_context> context_ptr;
@@ -24,6 +26,7 @@ public:
 };
 typedef std::shared_ptr<plugin> plugin_ptr;
 
+
 class info_param
 {
 public:
@@ -33,6 +36,8 @@ public:
     std::string version;
     std::map<std::string, std::string> params;
     int code = 0;
+
+    boost::shared_array<char> p_data;
 };
 typedef std::shared_ptr<info_param> info_param_ptr;
 
