@@ -18,5 +18,9 @@ link_directories("C:/Qt/Qt5.12.2/Tools/mingw730_64/lib")
 include_directories("D:/boost_1_71_0")
 link_directories("D:/boost_1_71_0/lib/mingw64")
 
+add_definitions(-DBOOST_LOCALE_HIDE_AUTO_PTR)
+
 add_executable(${PROJECT_NAME} ${src_app})
-target_link_libraries (${PROJECT_NAME})
+target_link_libraries (${PROJECT_NAME} ws2_32)
+target_link_libraries (${PROJECT_NAME} libboost_system-mgw73-mt-d-x64-1_71.a libboost_coroutine-mgw73-mt-d-x64-1_71.a libboost_context-mgw73-mt-d-x64-1_71.a)
+target_link_libraries (${PROJECT_NAME} libboost_locale-mgw73-mt-d-x64-1_71.a libboost_thread-mgw73-mt-d-x64-1_71.a libboost_date_time-mgw73-mt-d-x64-1_71.a)
