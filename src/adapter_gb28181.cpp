@@ -88,32 +88,31 @@ int adapter_gb28181::do_work(info_net_proxy_ptr p_info){
         auto p_param = *p_info->params.begin();
         p_info->params.erase(p_info->params.begin());
 
-        if(ACTION_REGISTER == p_param->action && "1" == p_param->params[PARAM_CSEQ_INDEX]){
-            // 注册1
-            p_info->status = STATUS_REGISTER_1;
-            std::stringstream tmp_stream;
+        if(ACTION_REGISTER == p_param->action){
+            // 注册
+            auto iter = p_param->params.find("Authorization@response");
+            if(p_param->params.end() == iter){
+                // 没有鉴权的都认为是步骤1
+                std::stringstream tmp_stream;
 
-            encode_header(tmp_stream, 401, ACTION_UNAUTHORIZED, p_param, p_info);
-            
-            // WWW-Authenticate realm取项目编号，nonce取随机数
-            tmp_stream<<"WWW-Authenticate: "<< (boost::format("Digest realm=\"%s\", nonce=\"%s\"")
-                % m_realm % random_str()).str()<<LINE_END;
-            
-            tmp_stream<<LINE_END;
+                encode_header(tmp_stream, 401, ACTION_UNAUTHORIZED, p_param, p_info);
 
-            send_frame(tmp_stream.str(), p_info);
-        }else if(ACTION_REGISTER == p_param->action  && "2" == p_param->params[PARAM_CSEQ_INDEX] && STATUS_REGISTER_1 == p_info->status){
-            // 注册3
-            p_info->status = STATUS_REGISTER_3;
-            auto p_response = std::make_shared<info_param>();
+                // WWW-Authenticate realm取项目编号，nonce取随机数
+                tmp_stream<<"WWW-Authenticate: "<< (boost::format("Digest realm=\"%s\", nonce=\"%s\"")
+                    % m_realm % random_str()).str()<<LINE_END;
 
-            std::stringstream tmp_stream;
-            encode_header(tmp_stream, 200, ACTION_OK, p_param, p_info);
+                tmp_stream<<LINE_END;
 
-            tmp_stream<<"Date: "<<ptime_to_param_date(boost::posix_time::second_clock::local_time())<<LINE_END;
-            tmp_stream<<LINE_END;
+                send_frame(tmp_stream.str(), p_info);
+            }else{
+                std::stringstream tmp_stream;
+                encode_header(tmp_stream, 200, ACTION_OK, p_param, p_info);
 
-            send_frame(tmp_stream.str(), p_info);
+                tmp_stream<<"Date: "<<ptime_to_param_date(boost::posix_time::second_clock::local_time())<<LINE_END;
+                tmp_stream<<LINE_END;
+
+                send_frame(tmp_stream.str(), p_info);
+            }
         }else if(ACTION_MESSAGE == p_param->action){
             auto iter = p_param->params.find(PARAM_CONTENT_TYPE);
             if(p_param->params.end() == iter){
@@ -143,6 +142,7 @@ int adapter_gb28181::do_work(info_net_proxy_ptr p_info){
                 // 返回确认消息
                 std::stringstream tmp_stream;
                 encode_header(tmp_stream, 200, ACTION_OK, p_param, p_info);
+                tmp_stream<<LINE_END;
                 send_frame(tmp_stream.str(), p_info);
             }else{
                 LOG_ERROR("无法处理的消息命令类型:"<<cmd_type);
