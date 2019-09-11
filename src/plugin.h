@@ -1,5 +1,5 @@
-#ifndef PLUGIN_H__
-#define PLUGIN_H__
+﻿#ifndef PLUGIN_H
+#define PLUGIN_H
 
 #include <memory>
 #include <functional>
@@ -14,6 +14,7 @@ typedef boost::asio::ip::udp::endpoint point_type;
 class plugin
 {
 public:
+    virtual ~plugin(){}
     virtual bool start_before() { return true; }
     virtual bool start() { return true; }
     virtual bool start_after() { return true; }

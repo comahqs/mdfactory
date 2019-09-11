@@ -1,5 +1,5 @@
-#ifndef SERVICE_NET_H__
-#define SERVICE_NET_H__
+﻿#ifndef SERVICE_NET_H
+#define SERVICE_NET_H
 
 #include "plugin.h"
 #include <boost/asio.hpp>

@@ -1,5 +1,5 @@
-#ifndef UTILITY_TOOL_H__
-#define UTILITY_TOOL_H__
+﻿#ifndef UTILITY_TOOL_H
+#define UTILITY_TOOL_H
 
 #include <iostream>
 #include <sstream>

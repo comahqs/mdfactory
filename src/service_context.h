@@ -1,5 +1,5 @@
-#ifndef SERVICE_CONTEXT_H__
-#define SERVICE_CONTEXT_H__
+﻿#ifndef SERVICE_CONTEXT_H
+#define SERVICE_CONTEXT_H
 
 
 #include "plugin.h"
@@ -24,4 +24,4 @@ typedef std::shared_ptr<service_context> service_context_ptr;
 
 
 
-#endif // SERVICE_CONTEXT_H__
+#endif // SERVICE_CONTEXT_H

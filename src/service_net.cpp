@@ -1,7 +1,7 @@
-#include "service_net.h"
+﻿#include "service_net.h"
 #include "utility_tool.h"
 #include <chrono>
-#include "state_machine.h"
+#include "adapter_gb28181.h"
 
 #define BUFFER_MAX 4048
 
@@ -29,9 +29,9 @@ void service_net::stop()
 
 bool service_net::start_acceptor(unsigned int port, context_ptr p_context, boost::asio::yield_context yield){
     try{
-        auto p_service = std::make_shared<state_machine>();
+        auto p_service = std::make_shared<adapter_gb28181>();
 
-        auto p_socket = std::make_shared<socket_ptr::element_type>(*p_context, point_type(boost::asio::ip::address(), port));
+        auto p_socket = std::make_shared<socket_ptr::element_type>(*p_context, point_type(boost::asio::ip::address(), static_cast<unsigned short>(port)));
         point_type point_sender;
         boost::system::error_code ec;
         std::size_t count = 0;
@@ -47,7 +47,7 @@ bool service_net::start_acceptor(unsigned int port, context_ptr p_context, boost
             p_service->on_read(p_frame, count, point_sender, p_socket, p_context);
         }
     }catch(const std::exception& e){
-
+        LOG_ERROR("接收连接时发生错误:"<<e.what());
     }
     return true;
 }
