@@ -6,7 +6,7 @@
 #include <vector>
 #include <boost/asio.hpp>
 #include <boost/shared_array.hpp>
-#include <rapidxml/rapidxml.hpp>
+#include "tinyxml2.h"
 
 typedef std::shared_ptr<std::vector<unsigned char>> frame_ptr;
 typedef std::shared_ptr<boost::asio::io_context> context_ptr;
@@ -31,15 +31,21 @@ class info_param
 {
 public:
     frame_ptr p_frame;
-    std::string action;
-    std::string address;
-    std::string version;
-    std::map<std::string, std::string> params;
-    int code = 0;
 
-    boost::shared_array<char> p_data;
+    tinyxml2::XMLDocument header;
+    tinyxml2::XMLDocument data;
 };
 typedef std::shared_ptr<info_param> info_param_ptr;
+
+class info_net{
+public:
+    std::vector<info_param_ptr> params;
+    point_type point;
+    socket_ptr p_socket;
+    context_ptr p_context;
+    std::string status;
+};
+typedef std::shared_ptr<info_net> info_net_ptr;
 
 
 #define NP_SIP "sip"
