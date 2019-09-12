@@ -89,7 +89,7 @@ int adapter_gb28181::do_work(info_net_proxy_ptr p_info){
         p_info->params.erase(p_info->params.begin());
 
         if(ACTION_REGISTER == p_param->action){
-            // 注册
+            // 注册 注销，区别是注销的Expires为0
             auto iter = p_param->params.find("Authorization@response");
             if(p_param->params.end() == iter){
                 // 没有鉴权的都认为是步骤1
