@@ -1,5 +1,5 @@
-﻿#ifndef ADAPTER_GB28181_H
-#define ADAPTER_GB28181_H
+﻿#ifndef SERVER_SIP_H
+#define SERVER_SIP_H
 
 #include "plugin.h"
 #include <map>
@@ -7,7 +7,7 @@
 
 
 
-class adapter_gb28181 : public plugin, public std::enable_shared_from_this<adapter_gb28181>
+class server_sip : public plugin, public std::enable_shared_from_this<server_sip>
 {
 public:
     class info_net_proxy{
@@ -20,7 +20,7 @@ public:
     };
     typedef std::shared_ptr<info_net_proxy> info_net_proxy_ptr;
 
-    virtual ~adapter_gb28181();
+    virtual ~server_sip();
     virtual int do_work(info_net_proxy_ptr p_proxy);
     virtual void on_read(frame_ptr& p_frame, std::size_t& count, point_type& point, socket_ptr& p_socket, context_ptr& p_context);
 protected:
@@ -39,6 +39,6 @@ protected:
     std::map<std::string, info_net_proxy_ptr> m_proxys;
     std::string m_realm = "123456";
 };
-typedef std::shared_ptr<adapter_gb28181> adapter_gb28181_ptr;
+typedef std::shared_ptr<server_sip> server_sip_ptr;
 
-#endif // ADAPTER_GB28181_H
+#endif // SERVER_SIP_H

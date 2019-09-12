@@ -1,4 +1,4 @@
-﻿#include "adapter_gb28181.h"
+﻿#include "server_sip.h"
 #include "utility_tool.h"
 #include "error_code.h"
 #include <boost/format.hpp>
@@ -53,11 +53,11 @@
 #define MESSAGE_NOTIFY_CMD_TYPE "Notify.Cmd_Type"
 #define MESSAGE_KEEPALIVE "Keepalive"
 
-adapter_gb28181::~adapter_gb28181(){
+server_sip::~server_sip(){
 
 }
 
-void adapter_gb28181::on_read(frame_ptr& p_frame, std::size_t& count, point_type& point, socket_ptr& p_socket, context_ptr& p_context){
+void server_sip::on_read(frame_ptr& p_frame, std::size_t& count, point_type& point, socket_ptr& p_socket, context_ptr& p_context){
     info_param_ptr p_param = std::make_shared<info_param>();
     p_param->p_frame = std::make_shared<frame_ptr::element_type>(p_frame->begin(), p_frame->begin() + static_cast<int64_t>(count));
     if(MD_SUCCESS != decode(p_param, p_param->p_frame)){
@@ -83,7 +83,7 @@ void adapter_gb28181::on_read(frame_ptr& p_frame, std::size_t& count, point_type
     do_work(p_proxy);
 }
 
-int adapter_gb28181::do_work(info_net_proxy_ptr p_info){
+int server_sip::do_work(info_net_proxy_ptr p_info){
     while(!p_info->params.empty()){
         auto p_param = *p_info->params.begin();
         p_info->params.erase(p_info->params.begin());
@@ -154,7 +154,7 @@ int adapter_gb28181::do_work(info_net_proxy_ptr p_info){
     return MD_SUCCESS;
 }
 
-int adapter_gb28181::encode_header(std::stringstream& stream, const int& code, const std::string& action, const info_param_ptr& p_param, const info_net_proxy_ptr& p_info){
+int server_sip::encode_header(std::stringstream& stream, const int& code, const std::string& action, const info_param_ptr& p_param, const info_net_proxy_ptr& p_info){
     stream<<p_param->version<<" "<<code<<" "<<action<<LINE_END;
 
     // 回应的To@sip优先Contact，然后From@sip
@@ -202,7 +202,7 @@ int adapter_gb28181::encode_header(std::stringstream& stream, const int& code, c
     return MD_SUCCESS;
 }
 
-int adapter_gb28181::send_frame(frame_ptr p_frame, info_net_proxy_ptr p_info){
+int server_sip::send_frame(frame_ptr p_frame, info_net_proxy_ptr p_info){
     LOG_INFO("发送数据:"<<frame_to_str(p_frame));
     p_info->p_socket->async_send_to(boost::asio::buffer(*p_frame, p_frame->size()), p_info->point, [p_frame](const boost::system::error_code& e, const std::size_t& ){
         if(e){
@@ -212,7 +212,7 @@ int adapter_gb28181::send_frame(frame_ptr p_frame, info_net_proxy_ptr p_info){
     return MD_SUCCESS;
 }
 
-int adapter_gb28181::send_frame(const std::string& data, info_net_proxy_ptr p_info){
+int server_sip::send_frame(const std::string& data, info_net_proxy_ptr p_info){
     LOG_INFO("发送数据:"<<data);
     auto p_data = std::make_shared<std::string>(data);
     p_info->p_socket->async_send_to(boost::asio::buffer(p_data->c_str(), p_data->size()), p_info->point, [p_data](const boost::system::error_code& e, const std::size_t& ){
@@ -223,7 +223,7 @@ int adapter_gb28181::send_frame(const std::string& data, info_net_proxy_ptr p_in
     return MD_SUCCESS;
 }
 
-std::string adapter_gb28181::ptime_to_param_date(const boost::posix_time::ptime& time){
+std::string server_sip::ptime_to_param_date(const boost::posix_time::ptime& time){
     if(time.is_not_a_date_time()){
         return "";
     }
@@ -237,7 +237,7 @@ std::string adapter_gb28181::ptime_to_param_date(const boost::posix_time::ptime&
     return "";
 }
 
-int adapter_gb28181::decode(info_param_ptr &p_param, frame_ptr &p_frame)
+int server_sip::decode(info_param_ptr &p_param, frame_ptr &p_frame)
 {
     if (!p_param)
     {
@@ -391,7 +391,7 @@ int adapter_gb28181::decode(info_param_ptr &p_param, frame_ptr &p_frame)
     return MD_SUCCESS;
 }
 
-bool adapter_gb28181::find_line(const char **pp_line_start, const char **pp_line_end, const char **pp_start, const char *p_end)
+bool server_sip::find_line(const char **pp_line_start, const char **pp_line_end, const char **pp_start, const char *p_end)
 {
     if (nullptr == pp_line_start || nullptr == pp_line_end || nullptr == pp_start || nullptr == p_end)
     {
@@ -431,7 +431,7 @@ bool adapter_gb28181::find_line(const char **pp_line_start, const char **pp_line
     return false;
 }
 
-bool adapter_gb28181::find_param(const char **pp_param_start, const char **pp_param_end, const char **pp_start, const char *p_end, const char s)
+bool server_sip::find_param(const char **pp_param_start, const char **pp_param_end, const char **pp_start, const char *p_end, const char s)
 {
     if (nullptr == pp_param_start || nullptr == pp_param_end || nullptr == pp_start || nullptr == p_end)
     {
@@ -457,7 +457,7 @@ bool adapter_gb28181::find_param(const char **pp_param_start, const char **pp_pa
     return false;
 }
 
-bool adapter_gb28181::remove_char(const char **pp_start, const char **pp_end, const char s)
+bool server_sip::remove_char(const char **pp_start, const char **pp_end, const char s)
 {
     if (nullptr == pp_start || nullptr == pp_end)
     {
@@ -486,7 +486,7 @@ bool adapter_gb28181::remove_char(const char **pp_start, const char **pp_end, co
     return true;
 }
 
-bool adapter_gb28181::remove_rn(const char **pp_start, const char **pp_end)
+bool server_sip::remove_rn(const char **pp_start, const char **pp_end)
 {
     if (nullptr == pp_start || nullptr == pp_end)
     {
@@ -507,7 +507,7 @@ bool adapter_gb28181::remove_rn(const char **pp_start, const char **pp_end)
     return true;
 }
 
-bool adapter_gb28181::decode_kv(std::map<std::string, std::string> &kv, const std::string &tag, const char **pp_line_start, const char *p_line_end, const char s)
+bool server_sip::decode_kv(std::map<std::string, std::string> &kv, const std::string &tag, const char **pp_line_start, const char *p_line_end, const char s)
 {
     const char* p_param_start = nullptr, *p_param_end = nullptr, *p_kv_start = nullptr, *p_kv_end = nullptr;
     while (true)
@@ -530,6 +530,6 @@ bool adapter_gb28181::decode_kv(std::map<std::string, std::string> &kv, const st
     return true;
 }
 
-std::string adapter_gb28181::random_str(){
+std::string server_sip::random_str(){
     return "654321";
 }
