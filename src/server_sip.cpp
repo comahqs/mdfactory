@@ -17,6 +17,7 @@
 #define ACTION_OK "OK"
 #define ACTION_UNAUTHORIZED "Unauthorized"
 #define ACTION_MESSAGE "MESSAGE"
+#define ACTION_INVITE "INVITE"
 
 
 #define PARAM_TAG "tag"
@@ -50,6 +51,7 @@
 #define PARAM_CONTENT_LENGTH "Content-Length"
 #define PARAM_CONTENT_TYPE "Content-Type"
 #define CONTENT_TYPE_XML "Application/MANSCDP+xml"
+#define CONTENT_TYPE_SDP "Application/SDP"
 
 #define MESSAGE_NOTIFY_CMD_TYPE "Notify.CmdType"
 #define MESSAGE_KEEPALIVE "Keepalive"
@@ -58,10 +60,10 @@ server_sip::~server_sip(){
 
 }
 
-void server_sip::on_read(frame_ptr& p_frame, std::size_t& count, point_type& point, socket_ptr& p_socket, context_ptr& p_context){
+void server_sip::on_read(frame_ptr& p_buffer, std::size_t& count, point_type& point, socket_ptr& p_socket, context_ptr& p_context){
     info_param_ptr p_param = std::make_shared<info_param>();
-    p_param->p_frame = std::make_shared<frame_ptr::element_type>(p_frame->begin(), p_frame->begin() + static_cast<int64_t>(count));
-    if(MD_SUCCESS != decode(p_param, p_param->p_frame)){
+    auto p_frame = std::make_shared<frame_ptr::element_type>(p_buffer->begin(), p_buffer->begin() + static_cast<int64_t>(count));
+    if(MD_SUCCESS != decode(p_param, p_frame)){
         return;
     }
     info_net_ptr p_proxy;
@@ -128,13 +130,20 @@ int server_sip::do_work(info_net_ptr p_info){
         }else if(ACTION_MESSAGE == action){
             if(!find_node_value(data, PARAM_CONTENT_TYPE, pnode_root)){
                 LOG_ERROR("消息缺失消息内容");
-                return MD_MESSAGE_XML;
+                return MD_PROTOCOL_DATA;
             }
             if(CONTENT_TYPE_XML != data){
                 LOG_ERROR("无法处理的消息内容格式:"<<data);
+                return MD_PROTOCOL_DATA;
+            }
+            tinyxml2::XMLDocument doc;
+            try{
+                doc.Parse(p_param->data.c_str());
+            }catch(const std::exception& e){
+                LOG_ERROR("解析XML数据时发生错误:"<<e.what());
                 return MD_MESSAGE_XML;
             }
-            pnode_root = p_param->data.RootElement();
+            pnode_root = doc.RootElement();
             if(nullptr == pnode_root || !find_node_value(data, MESSAGE_NOTIFY_CMD_TYPE, pnode_root)){
                 LOG_ERROR("找不到消息命令类型");
                 return MD_MESSAGE_XML;
@@ -151,6 +160,18 @@ int server_sip::do_work(info_net_ptr p_info){
                 LOG_ERROR("无法处理的消息命令类型:"<<data);
                 return MD_MESSAGE_XML;
             }
+        }else if(ACTION_INVITE == action){
+            if(!find_node_value(data, PARAM_CONTENT_TYPE, pnode_root)){
+                LOG_ERROR("消息缺失消息内容");
+                return MD_PROTOCOL_DATA;
+            }
+            if(CONTENT_TYPE_SDP != data){
+                LOG_ERROR("无法处理的消息内容格式:"<<data);
+                return MD_PROTOCOL_DATA;
+            }
+
+            // 发送INVITE到媒体服务器
+
         }
     }
     
@@ -381,20 +402,8 @@ int server_sip::decode(info_param_ptr &p_param, frame_ptr &p_frame)
             LOG_ERROR("有数据体标识，但没有数据体内容:"<<pnode->GetText());
             return MD_PROTOCOL_DATA;
         }
-        if(0 == strcmp(CONTENT_TYPE_XML, pnode->GetText())){
-            try{
-                auto vcount = static_cast<std::size_t>(p_end - p_start);
-                auto pbuffer = boost::shared_array<char>(new char[vcount + 1]);
-                memcpy(pbuffer.get(), p_start, vcount);
-                (pbuffer.get())[vcount] = '\0';
-                p_param->data.Parse(pbuffer.get());
-            }catch(const std::exception& e){
-                LOG_ERROR("解析XML数据时发生错误:"<<e.what());
-                return MD_MESSAGE_XML;
-            }
-        }else{
-            LOG_WARN("无法处理的数据体:"<<pnode->GetText());
-        }
+        auto vcount = static_cast<std::size_t>(p_end - p_start);
+        p_param->data = std::string(p_start, vcount);
     }
     return MD_SUCCESS;
 }
@@ -629,4 +638,168 @@ std::string server_sip::find_node_value(const char* pname, tinyxml2::XMLElement*
         return "";
     }
     return p->GetText();
+}
+
+int server_sip::decode_sdp(info_param_ptr& p_param, const char** pp_start, const char** pp_end){
+    /*
+    auto pnode_header_root = nullptr;
+    const char *p_line_start = nullptr, *p_line_end = nullptr, *p_param_start = nullptr, *p_param_end = nullptr;
+    tinyxml2::XMLElement *pnode = nullptr;
+    while(true){
+        if (!find_line(&p_line_start, &p_line_end, pp_start, *pp_end))
+        {
+            break;
+        }
+        if (p_line_start == p_line_end)
+        {
+            break;
+        }
+        if (!find_param(&p_param_start, &p_param_end, &p_line_start, p_line_end, '='))
+        {
+            LOG_ERROR("非法SDP参数:"<<std::string(p_line_start, static_cast<std::size_t>(p_line_end - p_line_start)));
+            continue;
+        }
+        remove_char(&p_param_start, &p_param_start, ' ');
+        remove_char(&p_line_start, &p_line_end, ' ');
+        if(p_param_start == p_param_end){
+            LOG_ERROR("非法SDP参数:"<<std::string(p_line_start, static_cast<std::size_t>(p_line_end - p_line_start)));
+            continue;
+        }
+
+        if(1 == (p_param_end - p_param_start)){
+            if('v' == *p_param_start){
+                // protocol version
+                pnode = put_node(pnode_header_root, "v_version", p_line_start, p_line_end, &p_param->data);
+            }else if('o' == *p_param_start){
+                // owner/creator and session identifier
+                // o=<username> <sess-id> <sess-version> <nettype> <addrtype> <unicast-address>
+                while(true){
+                    if(!find_param(&p_param_start, &p_param_end, &p_line_start, p_line_end, ' ')){
+                        break;
+                    }
+                    put_node(pnode_header_root, "o_username", p_param_start, p_param_end, &p_param->data);
+
+                    if(!find_param(&p_param_start, &p_param_end, &p_line_start, p_line_end, ' ')){
+                        break;
+                    }
+                    put_node(pnode_header_root, "o_sess-id", p_param_start, p_param_end, &p_param->data);
+
+                    if(!find_param(&p_param_start, &p_param_end, &p_line_start, p_line_end, ' ')){
+                        break;
+                    }
+                    put_node(pnode_header_root, "o_sess-version", p_param_start, p_param_end, &p_param->data);
+
+                    if(!find_param(&p_param_start, &p_param_end, &p_line_start, p_line_end, ' ')){
+                        break;
+                    }
+                    put_node(pnode_header_root, "o_nettype", p_param_start, p_param_end, &p_param->data);
+
+                    if(!find_param(&p_param_start, &p_param_end, &p_line_start, p_line_end, ' ')){
+                        break;
+                    }
+                    put_node(pnode_header_root, "o_addrtype", p_param_start, p_param_end, &p_param->data);
+
+                    if(!find_param(&p_param_start, &p_param_end, &p_line_start, p_line_end, ' ')){
+                        break;
+                    }
+                    put_node(pnode_header_root, "o_unicast-address", p_param_start, p_param_end, &p_param->data);
+                    break;
+                }
+            }else if('s' == *p_param_start){
+                // session name
+                put_node(pnode_header_root, "s", p_param_start, p_param_end, &p_param->data);
+            }else if('c' == *p_param_start){
+                // connection information
+                // 网络协议，地址的类型，连接地址
+                while(true){
+                    if(!find_param(&p_param_start, &p_param_end, &p_line_start, p_line_end, ' ')){
+                        break;
+                    }
+                    put_node(pnode_header_root, "c_nettype", p_param_start, p_param_end, &p_param->data);
+
+                    if(!find_param(&p_param_start, &p_param_end, &p_line_start, p_line_end, ' ')){
+                        break;
+                    }
+                    put_node(pnode_header_root, "c_addrtype", p_param_start, p_param_end, &p_param->data);
+
+                    if(!find_param(&p_param_start, &p_param_end, &p_line_start, p_line_end, ' ')){
+                        break;
+                    }
+                    put_node(pnode_header_root, "c_unicast-address", p_param_start, p_param_end, &p_param->data);
+                    break;
+                }
+            }else if('t' == *p_param_start){
+                // time the session is active
+                // 开始时间，结束时间
+                while(true){
+                    if(!find_param(&p_param_start, &p_param_end, &p_line_start, p_line_end, ' ')){
+                        break;
+                    }
+                    put_node(pnode_header_root, "t_start", p_param_start, p_param_end, &p_param->data);
+
+                    if(!find_param(&p_param_start, &p_param_end, &p_line_start, p_line_end, ' ')){
+                        break;
+                    }
+                    put_node(pnode_header_root, "t_end", p_param_start, p_param_end, &p_param->data);
+                    break;
+                }
+            }else if('m' == *p_param_start){
+                // media name and transport address
+                // <media> <port> <proto> <fmt> ...
+                while(true){
+                    if(!find_param(&p_param_start, &p_param_end, &p_line_start, p_line_end, ' ')){
+                        break;
+                    }
+                    put_node(pnode_header_root, "m_media", p_param_start, p_param_end, &p_param->data);
+
+                    if(!find_param(&p_param_start, &p_param_end, &p_line_start, p_line_end, ' ')){
+                        break;
+                    }
+                    put_node(pnode_header_root, "m_port", p_param_start, p_param_end, &p_param->data);
+
+                    if(!find_param(&p_param_start, &p_param_end, &p_line_start, p_line_end, ' ')){
+                        break;
+                    }
+                    put_node(pnode_header_root, "m_protocol", p_param_start, p_param_end, &p_param->data);
+
+                    pnode = put_node(pnode_header_root, "m_fmt", p_param_start, p_param_end, &p_param->data);
+                    while(true){
+                        if(!find_param(&p_param_start, &p_param_end, &p_line_start, p_line_end, ' ')){
+                            break;
+                        }
+                        put_node(pnode, p_param_start, p_param_end, p_param_start, p_param_end, &p_param->data);
+                    }
+                    break;
+                }
+            }else if('a' == *p_param_start){
+                // media attribute
+
+                const char *p_kv_start = nullptr, *p_kv_end = nullptr;
+                if(!find_param(&p_kv_start, &p_kv_end, &p_line_start, p_line_end, ':')){
+                    // 没有:分隔的属性，只能是sendonly/recvonly/sendrecv/inactive
+                    std::string k = (boost::format("a_%s") % std::string(p_line_start, static_cast<std::size_t>(p_line_end - p_line_start))).str();
+                    put_node(pnode_header_root, k.data(), p_line_start, p_line_end, &p_param->data);
+                }else{
+                     std::string k = (boost::format("a_%s") % std::string(p_kv_start, static_cast<std::size_t>(p_kv_end - p_kv_start))).str();
+                     pnode = put_node(pnode_header_root, k.data(), p_line_start, p_line_end, &p_param->data);
+                     while(true){
+                         if(!find_param(&p_param_start, &p_param_end, &p_line_start, p_line_end, ' ')){
+                             break;
+                         }
+                         put_node(pnode, p_param_start, p_param_end, p_param_start, p_param_end, &p_param->data);
+                     }
+                }
+            }
+        }
+    }
+    */
+    return MD_SUCCESS;
+}
+
+bool server_sip::encode_request(std::stringstream& stream, const std::string& action, const std::string& sip_desc, const std::string& number_src, const std::string& address_src){
+    stream<<action<<" "<<sip_desc<<" SIP/2.0"<<LINE_END;
+    stream<<"Via: SIP/2.0/UDP "<<address_src<<"rport;branch="<<random_branch()<<LINE_END;
+    stream<<"To: <"<<sip_desc<<">"<<LINE_END;
+    stream<<"From: <"<<number_src<<"@"<<address_src<<">;tag="<<random_tag()<<LINE_END;
+    return true;
 }

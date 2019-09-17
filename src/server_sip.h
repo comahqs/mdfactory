@@ -31,6 +31,10 @@ protected:
     virtual bool find_node_value(std::string& v, const char* pname, tinyxml2::XMLElement* p_node);
     virtual bool find_node_value(std::string& v, const char* pname_first, const char* pname_second, tinyxml2::XMLElement* p_node);
     virtual std::string find_node_value(const char* pname, tinyxml2::XMLElement* p_node);
+    virtual int decode_sdp(info_param_ptr& p_param, const char** pp_start, const char** pp_end);
+    virtual bool encode_request(std::stringstream& stream, const std::string& action, const std::string& sip_desc, const std::string& number_src, const std::string& address_src, const std::string& content_type = "", const std::string& content_data = "");
+    virtual std::string random_branch();
+    virtual std::string random_tag();
 
 
     std::map<std::string, info_net_ptr> m_proxys;

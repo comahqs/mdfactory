@@ -30,10 +30,8 @@ typedef std::shared_ptr<plugin> plugin_ptr;
 class info_param
 {
 public:
-    frame_ptr p_frame;
-
     tinyxml2::XMLDocument header;
-    tinyxml2::XMLDocument data;
+    std::string data;
 };
 typedef std::shared_ptr<info_param> info_param_ptr;
 

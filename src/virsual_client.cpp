@@ -1,6 +1,7 @@
 ﻿#include "virsual_client.h"
 #include "utility_tool.h"
 #include <boost/bind.hpp>
+#include <boost/format.hpp>
 
 #define LINE_END "\r\n"
 
@@ -17,6 +18,7 @@ void virsual_client::play(){
 void virsual_client::handle_play(boost::asio::yield_context yield){
     try{
         auto p_socket = std::make_shared<socket_ptr::element_type>(*mp_context);
+        std::string address = (boost::format("%s:%d") % p_socket->local_endpoint().address().to_string() % p_socket->local_endpoint().port()).str();
         boost::system::error_code ec;
 
         point_type point(boost::asio::ip::address::from_string(m_ip), static_cast<unsigned short>(m_port));
@@ -27,26 +29,28 @@ void virsual_client::handle_play(boost::asio::yield_context yield){
             return;
         }
         */
+        std::string sip_from = "00000000001310018021@" + address;
+        std::string sip_to = (boost::format("%s@%s:%d") % "34020000001320000001" % m_ip % m_port).str();
 
         {
             std::stringstream tmp_stream;
-            tmp_stream<<"INVITE sip:00000000001310018021@192.168.40.66:7100 SIP/2.0"<<LINE_END
-                <<"Via: SIP/2.0/UDP 192.168.40.55:7100;rport;branch=z9hG4bK2480933505"<<LINE_END
-                <<"From: <sip:120105110228023020@192.168.40.55:7100>;tag=2249831759"<<LINE_END
-                <<"To: <sip:00000000001310018021@192.168.40.66:7100>"<<LINE_END
+            tmp_stream<<"INVITE sip:"<<sip_to<<" SIP/2.0"<<LINE_END
+                <<"Via: SIP/2.0/UDP "<<address<<";rport;branch=z9hG4bK2480933505"<<LINE_END
+                <<"From: <sip:"<<sip_from<<">;tag=2249831759"<<LINE_END
+                <<"To: <sip:"<<sip_to<<">"<<LINE_END
                 <<"Call-ID: 821763613"<<LINE_END
                 <<"CSeq: 20 INVITE"<<LINE_END
-                <<"Contact: <sip:120105110228023020@192.168.40.55:7100>"<<LINE_END
+                <<"Contact: <sip:"<<sip_from<<">"<<LINE_END
                 <<"Content-Type: Application/SDP"<<LINE_END
                 <<"Max-Forwards: 70"<<LINE_END
                 <<"User-Agent: NCG V2.6.0.299938"<<LINE_END
-                <<"Subject: 00000000001310018021:0,120105110228023020:0"<<LINE_END
+                <<"Subject: 00000000001310018021:0,34020000001320000001:0"<<LINE_END
                 <<"Content-Length:   239"<<LINE_END
                 <<LINE_END<<LINE_END
                 <<"v=0"<<LINE_END
-                <<"o=00000000001310018021 0 0 IN IP4 192.168.40.55"<<LINE_END
+                <<"o=00000000001310018021 0 0 IN IP4 192.168.0.200"<<LINE_END
                 <<"s=Play"<<LINE_END
-                <<"c=IN IP4 192.168.40.55"<<LINE_END
+                <<"c=IN IP4 192.168.0.200"<<LINE_END
                 <<"t=0 0"<<LINE_END
                 <<"m=video 5552 RTP/AVP 96 97 98"<<LINE_END
                 <<"a=rtpmap:96 PS/90000"<<LINE_END
