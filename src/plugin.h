@@ -41,6 +41,8 @@ public:
     std::string max_forwards;
     std::string expires;
     std::string authorization;
+    std::string subject;
+    std::string www_authenticate;
     std::string date;
     std::string content;
 

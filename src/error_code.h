@@ -11,6 +11,9 @@
 #define MD_PROTOCOL_DATA -201
 #define MD_MESSAGE_XML -202
 #define MD_MESSAGE_SDP -203
+#define MD_SDP -204
+#define MD_NUMBER -205
+#define MD_SUBJECT -206
 
 
 #endif // ERROR_CODE_H
