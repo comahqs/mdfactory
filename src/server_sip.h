@@ -4,7 +4,7 @@
 #include "plugin.h"
 #include <map>
 #include <vector>
-
+#include "module_sip.h"
 
 
 class server_sip : public plugin, public std::enable_shared_from_this<server_sip>
@@ -13,7 +13,7 @@ public:
     virtual ~server_sip();
     virtual void on_read(frame_ptr& p_frame, std::size_t& count, point_type& point, socket_ptr& p_socket, context_ptr& p_context);
 protected:
-     virtual int do_work(info_net_ptr p_proxy);
+     virtual int do_work(info_transaction_ptr p_transaction);
     virtual int send_frame(frame_ptr p_frame, info_net_ptr p_info);
     virtual std::string ptime_to_param_date(const boost::posix_time::ptime& time);
     virtual int send_frame(const std::string& data, info_net_ptr p_info);
@@ -35,10 +35,12 @@ protected:
     virtual bool encode_request(std::stringstream& stream, const std::string& action, const std::string& sip_desc, const std::string& number_src, const std::string& address_src, const std::string& content_type = "", const std::string& content_data = "");
     virtual std::string random_branch();
     virtual std::string random_tag();
+    virtual info_transaction_ptr get_transaction(info_param_ptr p_param);
 
 
-    std::map<std::string, info_net_ptr> m_proxys;
     std::string m_realm = "123456";
+    std::map<std::string, info_transaction_ptr> m_transactions;
+    module_sip_ptr mp_module = std::make_shared<module_sip_ptr::element_type>();
 };
 typedef std::shared_ptr<server_sip> server_sip_ptr;
 

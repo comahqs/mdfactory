@@ -30,20 +30,33 @@ typedef std::shared_ptr<plugin> plugin_ptr;
 class info_param
 {
 public:
-    tinyxml2::XMLDocument header;
-    std::string data;
+    std::string header;
+    std::string via;
+    std::string from;
+    std::string to;
+    std::string call_id;
+    std::string cseq;
+    std::string contact;
+    std::string content_type;
+    std::string max_forwards;
+    std::string expires;
+    std::string authorization;
+    std::string date;
+    std::string content;
+
+    socket_ptr p_socket;
+    point_type point;
 };
 typedef std::shared_ptr<info_param> info_param_ptr;
 
-class info_net{
+class info_transaction{
 public:
-    std::vector<info_param_ptr> params;
-    point_type point;
-    socket_ptr p_socket;
-    context_ptr p_context;
+    std::string id;
     std::string status;
+    std::map<std::string, info_param_ptr> params;
+    std::function<int (info_param_ptr, std::shared_ptr<info_transaction>)> fun_work;
 };
-typedef std::shared_ptr<info_net> info_net_ptr;
+typedef std::shared_ptr<info_transaction> info_transaction_ptr;
 
 
 #define NP_SIP "sip"

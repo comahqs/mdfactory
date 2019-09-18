@@ -1,6 +1,2 @@
-#include "info_param.h"
+﻿#include "info_param.h"
 
-info_param::info_param()
-{
-
-}

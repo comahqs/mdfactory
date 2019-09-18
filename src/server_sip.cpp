@@ -66,32 +66,65 @@ void server_sip::on_read(frame_ptr& p_buffer, std::size_t& count, point_type& po
     if(MD_SUCCESS != decode(p_param, p_frame)){
         return;
     }
-    info_net_ptr p_proxy;
-    auto pnode_root = p_param->header.RootElement();
-    auto pnode = pnode_root->FirstChildElement("address");
-    if(nullptr == pnode){
+    auto p_transaction = get_transaction(p_param);
+    if(!p_transaction){
         return;
     }
-    auto iter = m_proxys.find(pnode->GetText());
-    if(m_proxys.end() == iter){
-        p_proxy = std::make_shared<info_net>();
-        p_proxy->p_context = p_context;
-        p_proxy->p_socket = p_socket;
-        p_proxy->point = point;
-        m_proxys.insert(std::make_pair(pnode->GetText(), p_proxy));
-    }else{
-        p_proxy = iter->second;
-        if(p_proxy->point != point){
-            LOG_WARN("源端端点改变; SIP地址"<<pnode->GetText()<<"; 旧端点:"<<p_proxy->point.address().to_string()<<"; 新端点:"<<point.address().to_string());
-            p_proxy->point = point;
-        }
-    }
-    p_proxy->params.push_back(p_param);
-    
-    do_work(p_proxy);
+    p_transaction->fun_work(p_transaction);
 }
 
-int server_sip::do_work(info_net_ptr p_info){
+info_transaction_ptr server_sip::get_transaction(info_param_ptr p_param){
+    // 事务相等的条件  1、Via.branch相等；2、CSeq.method相等。
+    info_transaction_ptr p_transaction;
+    if(!p_param){
+        return info_transaction_ptr();
+    }
+    std::string id_transaction;
+    if(!mp_module->get_transaction_id(id_transaction, p_param)){
+        LOG_ERROR("生成事务id失败");
+        return info_transaction_ptr();
+    }
+    auto iter = m_transactions.find(id_transaction);
+    if(m_transactions.end() == iter){
+        p_transaction = std::make_shared<info_transaction_ptr::element_type>();
+        p_transaction->id = id_transaction;
+        m_transactions.insert(std::make_pair(p_transaction->id, p_transaction));
+
+        // 根据业务选择不同的业务处理函数
+        std::string action;
+        std::vector<std::string> params;
+        if(!mp_module->split(params, p_param->header, ' ') || 3 != params.size()){
+            LOG_ERROR("信息头非法:"<<p_param->header);
+            return info_transaction_ptr();
+        }
+        if("SIP/2.0" == params[0]){
+            // 回应
+            action = params[2];
+        }else if("SIP/2.0" == params[2]){
+            // 请求
+            action = params[0];
+        }else{
+            LOG_ERROR("信息头格式错误:"<<p_param->header);
+            return info_transaction_ptr();
+        }
+        if("REGISTER" == action){
+            p_transaction->fun_work = std::bind(&module_sip::do_register, mp_module, std::placeholders::_1, std::placeholders::_2);
+        }else if("MESSAGE" == action){
+            p_transaction->fun_work = std::bind(&module_sip::do_message, mp_module, std::placeholders::_1, std::placeholders::_2);
+        }else if("INVITE" == action){
+            p_transaction->fun_work = std::bind(&module_sip::do_invite, mp_module, std::placeholders::_1, std::placeholders::_2);
+        }else{
+            LOG_ERROR("无法处理的信息头:"<<p_param->header);
+            return info_transaction_ptr();
+        }
+    }else{
+        p_transaction = iter->second;
+    }
+    p_transaction->params.insert(std::make_pair(p_transaction->status, p_param));
+    return p_transaction;
+}
+
+int server_sip::do_work(info_transaction_ptr p_transaction){
     std::string action, data;
     tinyxml2::XMLElement *pnode_root = nullptr;
     while(!p_info->params.empty()){
@@ -171,7 +204,13 @@ int server_sip::do_work(info_net_ptr p_info){
             }
 
             // 发送INVITE到媒体服务器
-
+            std::stringstream tmp_stream;
+            std::string number_src;
+            std::string address_src;
+            if(!encode_request(tmp_stream, "INVITE", "123@123", number_src, address_src)){
+                return MD_UNKNOW;
+            }
+            
         }
     }
     
@@ -796,10 +835,25 @@ int server_sip::decode_sdp(info_param_ptr& p_param, const char** pp_start, const
     return MD_SUCCESS;
 }
 
-bool server_sip::encode_request(std::stringstream& stream, const std::string& action, const std::string& sip_desc, const std::string& number_src, const std::string& address_src){
+bool server_sip::encode_request(std::stringstream& stream, const std::string& action, const std::string& sip_desc, const std::string& number_src, const std::string& address_src, const std::string& content_type, const std::string& content_data){
     stream<<action<<" "<<sip_desc<<" SIP/2.0"<<LINE_END;
     stream<<"Via: SIP/2.0/UDP "<<address_src<<"rport;branch="<<random_branch()<<LINE_END;
     stream<<"To: <"<<sip_desc<<">"<<LINE_END;
     stream<<"From: <"<<number_src<<"@"<<address_src<<">;tag="<<random_tag()<<LINE_END;
+    stream<<"Call-ID: "<<random_str()<<LINE_END;
+    stream<<"CSeq: 1 "<<action<<LINE_END;
+    stream<<"Contact: <"<<number_src<<"@"<<address_src<<">"<<LINE_END;
+    stream<<"Max-Forwards: 70"<<LINE_END;
+    stream<<"Expires: 3600"<<LINE_END;
+    if(content_type.empty()){
+        stream<<"Content-Length: 0"<<LINE_END;
+        stream<<LINE_END;
+    }else{
+        stream<<"Content-Type: "<<content_type<<LINE_END;
+        stream<<"Content-Length: "<<content_data.size()<<LINE_END;
+        stream<<LINE_END;
+        stream<<content_data<<LINE_END;
+        stream<<LINE_END;
+    }
     return true;
 }
