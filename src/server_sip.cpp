@@ -1,12 +1,13 @@
 ﻿#include "server_sip.h"
 #include "utility_tool.h"
 #include "error_code.h"
+#include "module_timer.h"
 
 server_sip::~server_sip(){
 
 }
 
-void server_sip::on_read(frame_ptr& p_buffer, std::size_t& count, point_type& point, socket_ptr& p_socket, context_ptr&){
+void server_sip::on_read(frame_ptr& p_buffer, std::size_t& count, point_type& point, socket_ptr& p_socket, context_ptr& pcontext){
     info_param_ptr p_param = std::make_shared<info_param>();
     p_param->p_socket = p_socket;
     p_param->point = point;
@@ -14,7 +15,7 @@ void server_sip::on_read(frame_ptr& p_buffer, std::size_t& count, point_type& po
     if(MD_SUCCESS != mp_module->decode(p_param, p_frame)){
         return;
     }
-    auto p_transaction = get_transaction(p_param);
+    auto p_transaction = get_transaction(p_param, pcontext);
     if(!p_transaction){
         return;
     }
@@ -26,7 +27,7 @@ void server_sip::on_read(frame_ptr& p_buffer, std::size_t& count, point_type& po
     }
 }
 
-info_transaction_ptr server_sip::get_transaction(info_param_ptr p_param){
+info_transaction_ptr server_sip::get_transaction(info_param_ptr p_param, context_ptr& pcontext){
     // 事务相等的条件  1、Via.branch相等；2、CSeq.method相等。
     info_transaction_ptr p_transaction;
     if(!p_param){
@@ -41,11 +42,20 @@ info_transaction_ptr server_sip::get_transaction(info_param_ptr p_param){
     if(m_transactions.end() == iter){
         p_transaction = std::make_shared<info_transaction_ptr::element_type>();
         p_transaction->id = id_transaction;
+        p_transaction->ptimer = std::make_shared<module_timer>(*pcontext, std::bind(server_sip::handle_cancel, std::weak_ptr<server_sip>(shared_from_this()), p_transaction->id), m_time_resend, m_time_cancel);
     }else{
         p_transaction = iter->second;
     }
     p_transaction->params.insert(std::make_pair(p_transaction->status, p_param));
     return p_transaction;
+}
+
+void server_sip::handle_cancel(std::weak_ptr<server_sip> pserver, std::string id_transaction){
+    auto p = pserver.lock();
+    if(!p){
+        return;
+    }
+    p->m_transactions.erase(id_transaction);
 }
 
 int server_sip::decode_sdp(info_param_ptr& , const char** , const char** ){

@@ -51,14 +51,26 @@ public:
 };
 typedef std::shared_ptr<info_param> info_param_ptr;
 
+
+class i_timer{
+public:
+    virtual void restart() = 0;
+    virtual void send_buffer(std::shared_ptr<std::string> pbuffer, point_type point, socket_ptr psocket, int count = 0) = 0;
+};
+typedef std::shared_ptr<i_timer> i_timer_ptr;
+
+
 class info_transaction{
 public:
     std::string id;
     std::string status;
     std::map<std::string, info_param_ptr> params;
     std::function<int (info_param_ptr, std::shared_ptr<info_transaction>)> fun_work;
+    i_timer_ptr ptimer;
 };
 typedef std::shared_ptr<info_transaction> info_transaction_ptr;
+
+
 
 
 #define NP_SIP "sip"

@@ -13,11 +13,15 @@ public:
     virtual ~server_sip();
     virtual void on_read(frame_ptr& p_frame, std::size_t& count, point_type& point, socket_ptr& p_socket, context_ptr& p_context);
 protected:
-    virtual info_transaction_ptr get_transaction(info_param_ptr p_param);
+    static void handle_cancel(std::weak_ptr<server_sip> pserver, std::string id_transaction);
+
+    virtual info_transaction_ptr get_transaction(info_param_ptr p_param, context_ptr& pcontext);
     virtual int decode_sdp(info_param_ptr& p_param, const char** pp_start, const char** pp_end);
 
     std::map<std::string, info_transaction_ptr> m_transactions;
     module_sip_ptr mp_module = std::make_shared<module_sip_ptr::element_type>();
+    int64_t m_time_cancel = 60;
+    int64_t m_time_resend = 4;
 };
 typedef std::shared_ptr<server_sip> server_sip_ptr;
 

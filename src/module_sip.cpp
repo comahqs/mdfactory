@@ -138,13 +138,13 @@ int module_sip::do_register(info_param_ptr p_param, info_transaction_ptr p_trans
         p_response->www_authenticate = (boost::format("WWW-Authenticate: Digest realm=\"%s\", nonce=\"%s\"") % m_realm % random_once()).str();
 
         auto p_buffer = create_buffer(p_response);
-        send_buffer(p_buffer, p_param->point, p_param->p_socket);
+        p_transaction->ptimer->send_buffer(p_buffer, p_param->point, p_param->p_socket);
     }else if(ACTION_REGISTER == action && STATUS_MAKE(STATUS_REGISTER_,1) == p_transaction->status){
         p_transaction->status = STATUS_END;
         auto p_response = create_response_by_request(200, ACTION_OK, p_param);
         p_response->date = ptime_to_register_date(boost::posix_time::second_clock::local_time());
         auto p_buffer = create_buffer(p_response);
-        send_buffer(p_buffer, p_param->point, p_param->p_socket);
+        p_transaction->ptimer->send_buffer(p_buffer, p_param->point, p_param->p_socket);
     }else{
         LOG_WARN("无法处理的请求:"<<p_param->header);
         return MD_UNKNOW;
@@ -292,7 +292,7 @@ int module_sip::do_invite(info_param_ptr p_param, info_transaction_ptr p_transac
             return MD_UNKNOW;
         }
         auto p_buffer = create_buffer(p_request);
-        send_buffer(p_buffer, p_server_media->point, p_server_sip->p_socket);
+        p_transaction->ptimer->send_buffer(p_buffer, p_server_media->point, p_server_sip->p_socket);
     }else if(STATUS_MAKE(STATUS_INVITE_,1) == p_transaction->status && is_confirm(200, ACTION_OK, p_param)){
         auto status_old = p_transaction->status;
         p_transaction->status = STATUS_MAKE(STATUS_INVITE_,3);
@@ -329,7 +329,7 @@ int module_sip::do_invite(info_param_ptr p_param, info_transaction_ptr p_transac
             return MD_UNKNOW;
         }
         auto p_buffer = create_buffer(p_request);
-        send_buffer(p_buffer, p_device->point, p_server_sip->p_socket);
+        p_transaction->ptimer->send_buffer(p_buffer, p_device->point, p_server_sip->p_socket);
     }else if(STATUS_MAKE(STATUS_INVITE_,3) == p_transaction->status && is_confirm(200, ACTION_OK, p_param)){
         auto status_old = p_transaction->status;
         p_transaction->status = STATUS_MAKE(STATUS_INVITE_,5);
@@ -355,7 +355,7 @@ int module_sip::do_invite(info_param_ptr p_param, info_transaction_ptr p_transac
         if(!presponse_media){
             return MD_UNKNOW;
         }
-        send_buffer(create_buffer(presponse_media), p_server_media->point, p_server_sip->p_socket);
+        p_transaction->ptimer->send_buffer(create_buffer(presponse_media), p_server_media->point, p_server_sip->p_socket);
 
         // 发送ACK给设备
         auto number_old = get_number(prequest_old->from);
@@ -371,7 +371,7 @@ int module_sip::do_invite(info_param_ptr p_param, info_transaction_ptr p_transac
         // ACK不带SDP内容
         presponse_device->content_type.clear();
         presponse_device->content.clear();
-        send_buffer(create_buffer(presponse_device), p_device->point, p_server_sip->p_socket);
+        p_transaction->ptimer->send_buffer(create_buffer(presponse_device), p_device->point, p_server_sip->p_socket);
 
         // 将客户端的SDP发给媒体服务器，以便客户端和媒体服务器能传输RTP
         p_transaction->status = STATUS_MAKE(STATUS_INVITE_,7);
@@ -385,7 +385,7 @@ int module_sip::do_invite(info_param_ptr p_param, info_transaction_ptr p_transac
         if(!presponse_media){
             return MD_UNKNOW;
         }
-        send_buffer(create_buffer(prequest_client_to_media), p_server_media->point, p_server_sip->p_socket);
+        p_transaction->ptimer->send_buffer(create_buffer(prequest_client_to_media), p_server_media->point, p_server_sip->p_socket);
     }else if(STATUS_MAKE(STATUS_INVITE_,7) == p_transaction->status && is_confirm(200, ACTION_OK, p_param)){
         auto status_old = p_transaction->status;
         p_transaction->status = STATUS_MAKE(STATUS_INVITE_,9);
@@ -421,7 +421,7 @@ int module_sip::do_invite(info_param_ptr p_param, info_transaction_ptr p_transac
         if(!presponse_client){
             return MD_UNKNOW;
         }
-        send_buffer(create_buffer(presponse_client), p_client->point, p_server_sip->p_socket);
+        p_transaction->ptimer->send_buffer(create_buffer(presponse_client), p_client->point, p_server_sip->p_socket);
     }else if(STATUS_MAKE(STATUS_INVITE_,9) == p_transaction->status && ACTION_ACK == action){
         auto status_old = p_transaction->status;
         p_transaction->status = STATUS_MAKE(STATUS_INVITE_,11);
@@ -443,7 +443,7 @@ int module_sip::do_invite(info_param_ptr p_param, info_transaction_ptr p_transac
         if(!prequest){
             return MD_UNKNOW;
         }
-        send_buffer(create_buffer(prequest), p_server_media->point, p_server_sip->p_socket);
+        p_transaction->ptimer->send_buffer(create_buffer(prequest), p_server_media->point, p_server_sip->p_socket);
     }else if(STATUS_MAKE(STATUS_INVITE_,11) == p_transaction->status && ACTION_BYE == action){
         p_transaction->status = STATUS_MAKE(STATUS_INVITE_,13);
 
@@ -459,7 +459,7 @@ int module_sip::do_invite(info_param_ptr p_param, info_transaction_ptr p_transac
         if(!presponse){
             return MD_UNKNOW;
         }
-        send_buffer(create_buffer(presponse), p_client->point, p_server_sip->p_socket);
+        p_transaction->ptimer->send_buffer(create_buffer(presponse), p_client->point, p_server_sip->p_socket);
 
         // 发送BYTE给媒体服务器
         auto p_server_media = find_server_by_type(SERVER_TYPE_MEDIA);
@@ -467,7 +467,7 @@ int module_sip::do_invite(info_param_ptr p_param, info_transaction_ptr p_transac
         if(!prequest){
             return MD_UNKNOW;
         }
-        send_buffer(create_buffer(prequest), p_server_media->point, p_server_sip->p_socket);
+        p_transaction->ptimer->send_buffer(create_buffer(prequest), p_server_media->point, p_server_sip->p_socket);
     }else if(STATUS_MAKE(STATUS_INVITE_,13) == p_transaction->status && is_confirm(200, ACTION_OK, p_param)){
         p_transaction->status = STATUS_MAKE(STATUS_INVITE_,16);
 
@@ -478,7 +478,7 @@ int module_sip::do_invite(info_param_ptr p_param, info_transaction_ptr p_transac
         if(!prequest){
             return MD_UNKNOW;
         }
-        send_buffer(create_buffer(prequest), p_server_media->point, p_server_sip->p_socket);
+        p_transaction->ptimer->send_buffer(create_buffer(prequest), p_server_media->point, p_server_sip->p_socket);
     }else if(STATUS_MAKE(STATUS_INVITE_,16) == p_transaction->status && is_confirm(200, ACTION_OK, p_param)){
         p_transaction->status = STATUS_MAKE(STATUS_INVITE_,18);
 
@@ -504,7 +504,7 @@ int module_sip::do_invite(info_param_ptr p_param, info_transaction_ptr p_transac
         if(!prequest){
             return MD_UNKNOW;
         }
-        send_buffer(create_buffer(prequest), p_device->point, p_server_sip->p_socket);
+        p_transaction->ptimer->send_buffer(create_buffer(prequest), p_device->point, p_server_sip->p_socket);
     }else if(STATUS_MAKE(STATUS_INVITE_,18) == p_transaction->status && is_confirm(200, ACTION_OK, p_param)){
         // 事务结束
         p_transaction->status = STATUS_END;
@@ -902,7 +902,7 @@ int module_sip::do_message_keepalive(info_param_ptr p_param, info_transaction_pt
     // 设备状态信息报送消息
     p_transaction->status = STATUS_END;
     auto p_response = create_response_by_request(200, ACTION_OK, p_param);
-    send_buffer(create_buffer(p_response), p_param->point, p_param->p_socket);
+    p_transaction->ptimer->send_buffer(create_buffer(p_response), p_param->point, p_param->p_socket);
     return MD_SUCCESS;
 }
 
