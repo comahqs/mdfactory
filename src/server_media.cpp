@@ -12,18 +12,22 @@ static pjsip_dialog   *dlg;
 static void on_tsx_state(pjsip_transaction *tsx, pjsip_event *event);
 
 pj_bool_t on_rx_request(pjsip_rx_data *rdata){
-    return PJ_FALSE;
+    PJ_LOG(3,("", "on_rx_request"));
+    return PJ_TRUE;
 }
 
 pj_bool_t on_rx_response(pjsip_rx_data *rdata){
+    PJ_LOG(3,("", "on_rx_response"));
     return PJ_FALSE;
 }
 
 pj_bool_t on_tx_request(pjsip_tx_data *tdata){
+    PJ_LOG(3,("", "on_tx_request"));
     return PJ_TRUE;
 }
 
 pj_bool_t on_tx_response(pjsip_tx_data *tdata){
+    PJ_LOG(3,("", "on_tx_response"));
     return PJ_TRUE;
 }
 
@@ -49,10 +53,14 @@ static pjsip_module mod_app =
 static int worker_thread(void *arg)
 {
     PJ_UNUSED_ARG(arg);
-
     while (!quit_flag) {
     pj_time_val timeout = {0, 500};
-    pjsip_endpt_handle_events(sip_endpt, &timeout);
+    try{
+pjsip_endpt_handle_events(sip_endpt, &timeout);
+    }catch(const std::exception& e){
+PJ_LOG(3,("", e.what()));
+    }
+    
     }
 
     return 0;
@@ -111,6 +119,7 @@ static void send_request(const pjsip_method *method,
 
 static void on_tsx_state(pjsip_transaction *tsx, pjsip_event *event)
 {
+    PJ_LOG(3,("", "on_tsx_state"));
     if (tsx->role == PJSIP_ROLE_UAC) {
     if (tsx->method.id == PJSIP_INVITE_METHOD && tsx->state == PJSIP_TSX_STATE_TERMINATED) {
 #if SAME_BRANCH
@@ -200,5 +209,10 @@ bool server_media::start(){
 
         status = pj_thread_create(pool, "", &worker_thread, NULL, 0, 0, &thread);
         PJ_ASSERT_RETURN(status == PJ_SUCCESS, 1);
+
+    std::this_thread::sleep_for(std::chrono::hours(1));
+}
+
+void server_media::stop(){
 
 }

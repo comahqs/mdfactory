@@ -8,7 +8,7 @@
 
 
 int main(int , char** ){
-    GetACP();
+    //GetACP();
     server_media s(5060);
     s.start();
     /*
