@@ -2,14 +2,19 @@
 #define SERVER_MEDIA_H
 
 #include "server_sip.h"
+#include <pjsip.h>
+#include <pjlib-util.h>
+#include <pjlib.h>
 
-class server_media : public server_sip
+class server_media
 {
 public:
+    server_media(const int port);
     virtual ~server_media();
-    virtual void on_read(frame_ptr& p_frame, std::size_t& count, point_type& point, socket_ptr& p_socket, context_ptr& p_context);
-
+    virtual bool start();
+    virtual void stop();
 protected:
+    int m_port;
 };
 
 #endif // SERVER_MEDIA_H
