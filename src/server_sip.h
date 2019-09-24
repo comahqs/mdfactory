@@ -5,23 +5,36 @@
 #include <map>
 #include <vector>
 #include "module_sip.h"
+#include <pjsip.h>
+#include <pjlib-util.h>
+#include <pjlib.h>
 
 
-class server_sip : public plugin, public std::enable_shared_from_this<server_sip>
+class server_sip : public plugin
 {
 public:
+    server_sip(const int& port);
     virtual ~server_sip();
-    virtual void on_read(frame_ptr& p_frame, std::size_t& count, point_type& point, socket_ptr& p_socket, context_ptr& p_context);
+    virtual bool start();
+    virtual void stop();
 protected:
-    static void handle_cancel(std::weak_ptr<server_sip> pserver, std::string id_transaction);
+    static pj_bool_t on_rx_request(pjsip_rx_data *rdata);
+    static pj_bool_t on_rx_response(pjsip_rx_data *rdata);
+    static pj_bool_t on_tx_request(pjsip_tx_data *tdata);
+    static pj_bool_t on_tx_response(pjsip_tx_data *tdata);
+    static void on_tsx_state(pjsip_transaction *tsx, pjsip_event *event);
+    static int worker_thread(void *arg);
+    static std::string ptime_to_register_date();
 
-    virtual info_transaction_ptr get_transaction(info_param_ptr p_param, context_ptr& pcontext);
-    virtual int decode_sdp(info_param_ptr& p_param, const char** pp_start, const char** pp_end);
+    int decode_sdp(info_param_ptr &, const char **, const char **);
 
-    std::map<std::string, info_transaction_ptr> m_transactions;
-    module_sip_ptr mp_module = std::make_shared<module_sip_ptr::element_type>();
-    int64_t m_time_cancel = 60;
-    int64_t m_time_resend = 4;
+    static pj_caching_pool m_cp;
+    pj_thread_t *mp_thread = nullptr;
+    static pjsip_endpoint *mp_sip_endpt;
+    pj_bool_t m_flag;
+    std::pair<pjsip_endpoint*, pj_bool_t*> m_thread_params;
+    int m_port = 0;
+    struct pjsip_module m_module;
 };
 typedef std::shared_ptr<server_sip> server_sip_ptr;
 

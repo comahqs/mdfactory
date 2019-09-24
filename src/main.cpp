@@ -9,7 +9,7 @@
 
 int main(int , char** ){
     //GetACP();
-    server_media s(5060);
+    server_sip s(5060);
     s.start();
     /*
     service_context_ptr p_service_context = std::make_shared<service_context>();

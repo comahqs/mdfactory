@@ -2,9 +2,7 @@
 #define SERVER_MEDIA_H
 
 #include "server_sip.h"
-#include <pjsip.h>
-#include <pjlib-util.h>
-#include <pjlib.h>
+
 
 class server_media
 {

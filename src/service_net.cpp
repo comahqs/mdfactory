@@ -28,9 +28,9 @@ void service_net::stop()
 }
 
 bool service_net::start_acceptor(unsigned int port, context_ptr p_context, boost::asio::yield_context yield){
+    /*
     try{
-        auto p_server_sip = std::make_shared<server_sip>();
-
+        //auto p_server_sip = std::make_shared<server_sip>();
         auto p_socket = std::make_shared<socket_ptr::element_type>(*p_context, point_type(boost::asio::ip::address(), static_cast<unsigned short>(port)));
         point_type point_sender;
         boost::system::error_code ec;
@@ -46,9 +46,11 @@ bool service_net::start_acceptor(unsigned int port, context_ptr p_context, boost
 
             p_server_sip->on_read(p_frame, count, point_sender, p_socket, p_context);
         }
+        
     }catch(const std::exception& e){
         LOG_ERROR("接收连接时发生错误:"<<e.what());
     }
+    */
     return true;
 }
 

@@ -2,63 +2,295 @@
 #include "utility_tool.h"
 #include "error_code.h"
 #include "module_timer.h"
+#include <boost/format.hpp>
+#include <sstream>
+#include <pjsip/sip_auth_parser.h>
+#include <pjsip/sip_endpoint.h>
 
-server_sip::~server_sip(){
+#define LOG_ERROR_PJ(MSG)                                        \
+    {                                                            \
+        std::stringstream tmp_stream;                            \
+        tmp_stream << MSG;                                       \
+        PJ_LOG(1, ("server_sip.cpp", tmp_stream.str().c_str())); \
+    }
+#define LOG_WARN_PJ(MSG)                                         \
+    {                                                            \
+        std::stringstream tmp_stream;                            \
+        tmp_stream << MSG;                                       \
+        PJ_LOG(2, ("server_sip.cpp", tmp_stream.str().c_str())); \
+    }
+#define LOG_INFO_PJ(MSG)                                         \
+    {                                                            \
+        std::stringstream tmp_stream;                            \
+        tmp_stream << MSG;                                       \
+        PJ_LOG(3, ("server_sip.cpp", tmp_stream.str().c_str())); \
+    }
+#define LOG_DEBUG_PJ(MSG)                                        \
+    {                                                            \
+        std::stringstream tmp_stream;                            \
+        tmp_stream << MSG;                                       \
+        PJ_LOG(4, ("server_sip.cpp", tmp_stream.str().c_str())); \
+    }
 
+pj_caching_pool server_sip::m_cp;
+pjsip_endpoint *server_sip::mp_sip_endpt = nullptr;
+
+server_sip::server_sip(const int &port) : m_port(port)
+{
 }
 
-void server_sip::on_read(frame_ptr& p_buffer, std::size_t& count, point_type& point, socket_ptr& p_socket, context_ptr& pcontext){
-    info_param_ptr p_param = std::make_shared<info_param>();
-    p_param->p_socket = p_socket;
-    p_param->point = point;
-    auto p_frame = std::make_shared<frame_ptr::element_type>(p_buffer->begin(), p_buffer->begin() + static_cast<int64_t>(count));
-    if(MD_SUCCESS != mp_module->decode(p_param, p_frame)){
-        return;
-    }
-    auto p_transaction = get_transaction(p_param, pcontext);
-    if(!p_transaction){
-        return;
-    }
-    p_transaction->fun_work(p_param, p_transaction);
-
-    // 如果事务结束了，就删除
-    if(STATUS_END == p_transaction->status){
-        m_transactions.erase(p_transaction->id);
-    }
+server_sip::~server_sip()
+{
 }
 
-info_transaction_ptr server_sip::get_transaction(info_param_ptr p_param, context_ptr& pcontext){
-    // 事务相等的条件  1、Via.branch相等；2、CSeq.method相等。
-    info_transaction_ptr p_transaction;
-    if(!p_param){
-        return info_transaction_ptr();
+bool server_sip::start()
+{
+    pj_status_t status;
+
+    /* Must init PJLIB first: */
+    status = pj_init();
+    if (PJ_SUCCESS != status)
+    {
+        LOG_ERROR_PJ("初始化[pj_init]失败:" << status);
+        return false;
     }
-    std::string id_transaction;
-    if(!mp_module->get_transaction_id(id_transaction, p_param)){
-        LOG_ERROR("生成事务id失败");
-        return info_transaction_ptr();
+    /* Then init PJLIB-UTIL: */
+    status = pjlib_util_init();
+    if (PJ_SUCCESS != status)
+    {
+        LOG_ERROR_PJ("初始化[pjlib_util_init]失败:" << status);
+        return false;
     }
-    auto iter = m_transactions.find(id_transaction);
-    if(m_transactions.end() == iter){
-        p_transaction = std::make_shared<info_transaction_ptr::element_type>();
-        p_transaction->id = id_transaction;
-        p_transaction->ptimer = std::make_shared<module_timer>(*pcontext, std::bind(server_sip::handle_cancel, std::weak_ptr<server_sip>(shared_from_this()), p_transaction->id), m_time_resend, m_time_cancel);
-    }else{
-        p_transaction = iter->second;
+
+    /* Must create a pool factory before we can allocate any memory. */
+    pj_caching_pool_init(&m_cp, &pj_pool_factory_default_policy, 0);
+
+    /* Create the endpoint: */
+    status = pjsip_endpt_create(&m_cp.factory, "sipstateless",
+                                &mp_sip_endpt);
+    if (PJ_SUCCESS != status)
+    {
+        LOG_ERROR_PJ("创建pj端点失败:" << status);
+        return false;
     }
-    p_transaction->params.insert(std::make_pair(p_transaction->status, p_param));
-    return p_transaction;
+
+    /*
+         * Add UDP transport, with hard-coded port
+         */
+    pj_sockaddr_in addr;
+
+    addr.sin_family = pj_AF_INET();
+    addr.sin_addr.s_addr = 0;
+    addr.sin_port = pj_htons(static_cast<pj_uint16_t>(m_port));
+
+    status = pjsip_udp_transport_start(mp_sip_endpt, &addr, nullptr, 1, nullptr);
+    if (status != PJ_SUCCESS)
+    {
+        LOG_ERROR_PJ("创建udp传输失败:" << status);
+        return false;
+    }
+
+    status = pjsip_tsx_layer_init_module(mp_sip_endpt);
+    if (status != PJ_SUCCESS)
+    {
+        LOG_ERROR_PJ("初始化事务层模块失败:" << status);
+        return false;
+    }
+
+    status = pjsip_ua_init_module(mp_sip_endpt, NULL);
+    if (status != PJ_SUCCESS)
+    {
+        LOG_ERROR_PJ("初始化ua层模块失败:" << status);
+        return false;
+    }
+
+    /*
+         * Register our module to receive incoming requests.
+         */
+    m_module.name = {"server_sip"};
+    m_module.id = -1;
+    m_module.load = nullptr;
+    m_module.unload = nullptr;
+    m_module.start = nullptr;
+    m_module.stop = nullptr;
+    m_module.priority = PJSIP_MOD_PRIORITY_APPLICATION;
+    m_module.on_rx_request = &server_sip::on_rx_request;
+    m_module.on_rx_response = &server_sip::on_rx_response;
+    m_module.on_tx_request = &server_sip::on_tx_request;
+    m_module.on_tx_response = nullptr;
+    m_module.on_tsx_state = &server_sip::on_tsx_state;
+
+    status = pjsip_endpt_register_module(mp_sip_endpt, &m_module);
+    if (status != PJ_SUCCESS)
+    {
+        LOG_ERROR_PJ("注册自定义模块失败:" << status);
+        return false;
+    }
+
+    auto pool = pjsip_endpt_create_pool(mp_sip_endpt, "", 1000, 1000);
+    if (nullptr == pool || !pool)
+    {
+        LOG_ERROR_PJ("创建内存池失败:" << status);
+        return false;
+    }
+
+    m_flag = PJ_TRUE;
+    m_thread_params.first = mp_sip_endpt;
+    m_thread_params.second = &m_flag;
+    status = pj_thread_create(pool, "", server_sip::worker_thread, &m_thread_params, 0, 0, &mp_thread);
+    if (PJ_SUCCESS != status)
+    {
+        LOG_ERROR_PJ("创建工作线程失败:" << status);
+        return false;
+    }
+    return true;
 }
 
-void server_sip::handle_cancel(std::weak_ptr<server_sip> pserver, std::string id_transaction){
-    auto p = pserver.lock();
-    if(!p){
-        return;
-    }
-    p->m_transactions.erase(id_transaction);
+void server_sip::stop()
+{
 }
 
-int server_sip::decode_sdp(info_param_ptr& , const char** , const char** ){
+pj_bool_t server_sip::on_rx_request(pjsip_rx_data *rdata)
+{
+    LOG_DEBUG_PJ("on_rx_request");
+    pj_status_t status;
+    if (pjsip_method_e::PJSIP_REGISTER_METHOD == rdata->msg_info.cseq->method.id)
+    {
+        // REGISTER
+        auto hdr = (pjsip_www_authenticate_hdr *)pjsip_msg_find_hdr(rdata->msg_info.msg, pjsip_hdr_e::PJSIP_H_AUTHORIZATION, nullptr);
+        if (nullptr == hdr)
+        {
+            // 2
+            hdr = pjsip_www_authenticate_hdr_create(rdata->tp_info.pool);
+            char nonce_buf[16];
+            pj_str_t random;
+            random.ptr = nonce_buf;
+            random.slen = sizeof(nonce_buf);
+            hdr->scheme = pjsip_DIGEST_STR;
+            //hdr->challenge.digest.algorithm = pjsip_MD5_STR;
+            pj_create_random_string(nonce_buf, sizeof(nonce_buf));
+            pj_strdup2(rdata->tp_info.pool, &hdr->challenge.digest.nonce, nonce_buf);
+
+            //pj_create_random_string(nonce_buf, sizeof(nonce_buf));
+            //pj_strdup(rdata->tp_info.pool, &hdr->challenge.digest.opaque, &random);
+
+            //hdr->challenge.digest.qop.slen = 0;
+
+            pj_strdup2(rdata->tp_info.pool, &hdr->challenge.digest.realm, "123");
+            //hdr->challenge.digest.stale = stale;
+
+            pjsip_tx_data *p_tdata = nullptr;
+            pjsip_response_addr res_addr;
+            status = pjsip_endpt_create_response(mp_sip_endpt, rdata, 401, nullptr, &p_tdata);
+            status = pjsip_get_response_addr(rdata->tp_info.pool, rdata, &res_addr);
+            pjsip_msg_add_hdr(p_tdata->msg, (pjsip_hdr*)hdr);
+            status = pjsip_endpt_send_response(mp_sip_endpt, &res_addr, p_tdata, nullptr, nullptr);
+            if (PJ_SUCCESS != status)
+            {
+                LOG_ERROR_PJ("发送注册回应帧[401]失败:" << status);
+                return PJ_FALSE;
+            }
+            return PJ_TRUE;
+        }
+        else
+        {
+            // 4
+            auto str_date = ptime_to_register_date();
+            pj_str_t n, v;
+            pj_strdup2(rdata->tp_info.pool, &n, "Date");
+            pj_strdup2(rdata->tp_info.pool, &v, str_date.c_str());
+            auto hdr_date = pjsip_generic_string_hdr_create(rdata->tp_info.pool, &n, &v);
+            pj_strdup2(rdata->tp_info.pool, &n, "Expires");
+            pj_strdup2(rdata->tp_info.pool, &v, "3600");
+            auto hdr_expires = pjsip_generic_string_hdr_create(rdata->tp_info.pool, &n, &v);
+
+            pjsip_tx_data *p_tdata = nullptr;
+            pjsip_response_addr res_addr;
+            status = pjsip_endpt_create_response(mp_sip_endpt, rdata, 200, nullptr, &p_tdata);
+            status = pjsip_get_response_addr(rdata->tp_info.pool, rdata, &res_addr);
+            pjsip_msg_add_hdr(p_tdata->msg, (pjsip_hdr*)hdr_date);
+            pjsip_msg_add_hdr(p_tdata->msg, (pjsip_hdr*)hdr_expires);
+            
+            status = pjsip_endpt_send_response(mp_sip_endpt, &res_addr, p_tdata, nullptr, nullptr);
+            if (PJ_SUCCESS != status)
+            {
+                LOG_ERROR_PJ("发送注册回应帧[200]失败:" << status);
+                return PJ_FALSE;
+            }
+            LOG_INFO_PJ("注册成功");
+            return PJ_TRUE;
+        }
+    }
+    return PJ_FALSE;
+}
+
+std::string server_sip::ptime_to_register_date(){
+    try
+    {
+        auto time_current = boost::posix_time::second_clock::local_time();
+        std::stringstream ss;
+        char fill_char = '0';
+        auto date = time_current.date();
+        ss  << std::setw(4) << std::setfill(fill_char)<<static_cast<int>(date.year())<<"-";
+        ss  << std::setw(2) << std::setfill(fill_char)<<static_cast<int>(date.month())<<"-";
+        ss  << std::setw(2) << std::setfill(fill_char)<<static_cast<int>(date.day());
+        ss << "T";
+        auto td = time_current.time_of_day();
+        ss  << std::setw(2) << std::setfill(fill_char)<< boost::date_time::absolute_value(td.hours()) << ":";
+        ss  << std::setw(2) << std::setfill(fill_char)<< boost::date_time::absolute_value(td.minutes()) << ":";
+        ss  << std::setw(2) << std::setfill(fill_char)<< boost::date_time::absolute_value(td.seconds());
+        ss  << "." << std::setw(boost::posix_time::time_duration::num_fractional_digits())<<std::setw(3)<< std::setfill(fill_char)<< boost::date_time::absolute_value(td.fractional_seconds());
+        return ss.str();
+    }
+    catch(const std::exception&)
+    {
+    }
+    return "";
+}
+
+pj_bool_t server_sip::on_rx_response(pjsip_rx_data *rdata)
+{
+    LOG_DEBUG_PJ("on_rx_response");
+    return PJ_FALSE;
+}
+
+pj_bool_t server_sip::on_tx_request(pjsip_tx_data *tdata)
+{
+    LOG_DEBUG_PJ("on_tx_request");
+    return PJ_TRUE;
+}
+
+pj_bool_t server_sip::on_tx_response(pjsip_tx_data *tdata)
+{
+    LOG_DEBUG_PJ("on_tx_response");
+    return PJ_TRUE;
+}
+
+void server_sip::on_tsx_state(pjsip_transaction *tsx, pjsip_event *event)
+{
+    LOG_DEBUG_PJ("on_tsx_state");
+}
+
+int server_sip::worker_thread(void *arg)
+{
+    LOG_INFO_PJ("工作线程开始");
+    auto pparams = reinterpret_cast<std::pair<pjsip_endpoint *, pj_bool_t *> *>(arg);
+    if (nullptr == pparams)
+    {
+        LOG_ERROR_PJ("工作线程参数错误");
+        return -1;
+    }
+    while ((pparams->second))
+    {
+        pj_time_val timeout = {0, 500};
+        pjsip_endpt_handle_events(pparams->first, &timeout);
+    }
+    LOG_INFO_PJ("工作线程结束");
+    return 0;
+}
+
+int server_sip::decode_sdp(info_param_ptr &, const char **, const char **)
+{
     /*
     auto pnode_header_root = nullptr;
     const char *p_line_start = nullptr, *p_line_end = nullptr, *p_param_start = nullptr, *p_param_end = nullptr;
