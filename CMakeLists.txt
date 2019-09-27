@@ -7,7 +7,7 @@ file(GLOB files_src ./src/*.cpp ./src/*.h)
 set(src_app ${files_src})
 MESSAGE( STATUS "file = ${files_src}")
 
-SET( CMAKE_CXX_FLAGS "-std=c++11 -g")
+SET( CMAKE_CXX_FLAGS "-std=c++11 -gdwarf-4 -g")
 
 #输出项目名称
 project(mdfactory)
@@ -23,6 +23,8 @@ project(mdfactory)
 
 add_definitions(-DBOOST_LOCALE_HIDE_AUTO_PTR)
 add_definitions(-DBOOST_COROUTINES_NO_DEPRECATION_WARNING)
+add_definitions(-DPJ_AUTOCONF=1)
+
 
 add_executable(${PROJECT_NAME} ${src_app})
 #target_link_libraries (${PROJECT_NAME} libpj-x86_64-unknown-linux-gnu.a libpjlib-util-x86_64-unknown-linux-gnu.a libpjsip-x86_64-unknown-linux-gnu.a)

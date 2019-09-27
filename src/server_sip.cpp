@@ -5,7 +5,7 @@
 #include <boost/format.hpp>
 #include <sstream>
 #include <pjsip/sip_auth_parser.h>
-#include <pjsip/sip_endpoint.h>
+
 
 #define LOG_ERROR_PJ(MSG)                                        \
     {                                                            \
@@ -34,6 +34,31 @@
 
 pj_caching_pool server_sip::m_cp;
 pjsip_endpoint *server_sip::mp_sip_endpt = nullptr;
+struct pjsip_module server_sip::m_module;
+pjsip_inv_callback server_sip::m_inv_callback;
+
+
+
+
+void OnStateChanged(pjsip_inv_session *inv, pjsip_event *e){
+    LOG_DEBUG_PJ("OnStateChanged");
+}
+
+void OnNewSession(pjsip_inv_session *inv, pjsip_event *e){
+    LOG_DEBUG_PJ("OnNewSession");
+}
+
+void OnTsxStateChanged(pjsip_inv_session *inv, pjsip_transaction *tsx, pjsip_event *e){
+    LOG_DEBUG_PJ("OnTsxStateChanged");
+}
+
+ void OnMediaUpdate(pjsip_inv_session *inv, pj_status_t status){
+    LOG_DEBUG_PJ("OnMediaUpdate");
+ }
+
+ void OnSendAck(pjsip_inv_session *inv, pjsip_rx_data *rdata){
+    LOG_DEBUG_PJ("OnSendAck");
+ }
 
 server_sip::server_sip(const int &port) : m_port(port)
 {
@@ -127,6 +152,21 @@ bool server_sip::start()
         return false;
     }
 
+    status = pjsip_100rel_init_module(mp_sip_endpt);
+    if (status != PJ_SUCCESS)
+    {
+        LOG_ERROR_PJ("注册100rel模块失败:" << status);
+        return false;
+    }
+
+    pj_bzero(&m_inv_callback, sizeof(m_inv_callback));
+    m_inv_callback.on_state_changed = &OnStateChanged;
+    m_inv_callback.on_new_session = &OnNewSession;
+    m_inv_callback.on_tsx_state_changed = &OnTsxStateChanged;
+    m_inv_callback.on_media_update = &OnMediaUpdate;
+    m_inv_callback.on_send_ack = &OnSendAck;
+    status = pjsip_inv_usage_init(mp_sip_endpt, &m_inv_callback);
+
     auto pool = pjsip_endpt_create_pool(mp_sip_endpt, "", 1000, 1000);
     if (nullptr == pool || !pool)
     {
@@ -154,9 +194,26 @@ pj_bool_t server_sip::on_rx_request(pjsip_rx_data *rdata)
 {
     LOG_DEBUG_PJ("on_rx_request");
     pj_status_t status;
+    auto p = pjsip_rdata_get_dlg(rdata);
+    auto t = pjsip_rdata_get_tsx(rdata);
     if (pjsip_method_e::PJSIP_REGISTER_METHOD == rdata->msg_info.cseq->method.id)
     {
-        // REGISTER
+        // 注册与注销
+        std::string name;
+        // Expires为0表示注销
+        auto hdr_expires = (pjsip_expires_hdr *)pjsip_msg_find_hdr(rdata->msg_info.msg, pjsip_hdr_e::PJSIP_H_EXPIRES, nullptr);
+        if (nullptr == hdr_expires)
+        {
+            name = "未知";
+        }
+        else if (0 != hdr_expires->ivalue)
+        {
+            name = "注册";
+        }
+        else
+        {
+            name = "注销";
+        }
         auto hdr = (pjsip_www_authenticate_hdr *)pjsip_msg_find_hdr(rdata->msg_info.msg, pjsip_hdr_e::PJSIP_H_AUTHORIZATION, nullptr);
         if (nullptr == hdr)
         {
@@ -183,13 +240,14 @@ pj_bool_t server_sip::on_rx_request(pjsip_rx_data *rdata)
             pjsip_response_addr res_addr;
             status = pjsip_endpt_create_response(mp_sip_endpt, rdata, 401, nullptr, &p_tdata);
             status = pjsip_get_response_addr(rdata->tp_info.pool, rdata, &res_addr);
-            pjsip_msg_add_hdr(p_tdata->msg, (pjsip_hdr*)hdr);
+            pjsip_msg_add_hdr(p_tdata->msg, (pjsip_hdr *)hdr);
             status = pjsip_endpt_send_response(mp_sip_endpt, &res_addr, p_tdata, nullptr, nullptr);
             if (PJ_SUCCESS != status)
             {
-                LOG_ERROR_PJ("发送注册回应帧[401]失败:" << status);
+                LOG_ERROR_PJ("发送" << name << "回应帧[401]失败:" << status);
                 return PJ_FALSE;
             }
+            
             return PJ_TRUE;
         }
         else
@@ -208,41 +266,155 @@ pj_bool_t server_sip::on_rx_request(pjsip_rx_data *rdata)
             pjsip_response_addr res_addr;
             status = pjsip_endpt_create_response(mp_sip_endpt, rdata, 200, nullptr, &p_tdata);
             status = pjsip_get_response_addr(rdata->tp_info.pool, rdata, &res_addr);
-            pjsip_msg_add_hdr(p_tdata->msg, (pjsip_hdr*)hdr_date);
-            pjsip_msg_add_hdr(p_tdata->msg, (pjsip_hdr*)hdr_expires);
-            
+            pjsip_msg_add_hdr(p_tdata->msg, (pjsip_hdr *)hdr_date);
+            pjsip_msg_add_hdr(p_tdata->msg, (pjsip_hdr *)hdr_expires);
+
             status = pjsip_endpt_send_response(mp_sip_endpt, &res_addr, p_tdata, nullptr, nullptr);
             if (PJ_SUCCESS != status)
             {
-                LOG_ERROR_PJ("发送注册回应帧[200]失败:" << status);
+                LOG_ERROR_PJ("发送" << name << "回应帧[200]失败:" << status);
                 return PJ_FALSE;
             }
-            LOG_INFO_PJ("注册成功");
+            LOG_INFO_PJ(name << "成功");
+            start_dlg_device_search(rdata);
             return PJ_TRUE;
+        }
+    }
+    else if (is_equal("MESSAGE", rdata->msg_info.cseq->method.name))
+    {
+        if (is_equal("Application", rdata->msg_info.ctype->media.type) && is_equal("MANSCDP+xml", rdata->msg_info.ctype->media.subtype))
+        {
+            // 解析XML
+            auto proot = pj_xml_parse(rdata->tp_info.pool, reinterpret_cast<char *>(rdata->msg_info.msg->body->data), rdata->msg_info.msg->body->len);
+            if (nullptr == proot)
+            {
+                LOG_ERROR_PJ("解析XML数据失败");
+                return PJ_FALSE;
+            }
+            pj_str_t name;
+            pj_strdup2(rdata->tp_info.pool, &name, "CmdType");
+            auto pnode_cmd_type = pj_xml_find_node(proot, &name);
+            if (nullptr == pnode_cmd_type)
+            {
+                LOG_ERROR_PJ("找不到节点[CmdType]");
+                return PJ_FALSE;
+            }
+            if (is_equal("Keepalive", pnode_cmd_type->content))
+            {
+                // 心跳
+                status = pjsip_endpt_respond_stateless(mp_sip_endpt, rdata, 200, nullptr, nullptr, nullptr);
+                if (PJ_SUCCESS != status)
+                {
+                    LOG_ERROR_PJ("发送心跳回应帧失败:" << status);
+                    return PJ_FALSE;
+                }
+                return PJ_TRUE;
+            }
+            else
+            {
+                LOG_DEBUG_PJ("无法处理的命令:" << to_str(pnode_cmd_type->content));
+            }
         }
     }
     return PJ_FALSE;
 }
 
-std::string server_sip::ptime_to_register_date(){
+void server_sip::start_dlg_device_search(pjsip_rx_data *rdata)
+{
+    auto &pool = rdata->tp_info.pool;
+    auto local_uri = pj_strdup3(pool, "sip:abc@192.168.0.200:5061;transport=udp");
+    auto remote_uri = pj_strdup3(pool, "sip:1@192.168.0.222:5062;transport=udp");
+    pjsip_dialog *pdlg = nullptr;
+    pj_status_t status;
+    status = pjsip_dlg_create_uac(pjsip_ua_instance(), &local_uri, nullptr, &remote_uri, nullptr, &pdlg);
+    if (PJ_SUCCESS != status)
+    {
+        LOG_ERROR_PJ("创建uac失败:" << error_to_str(status) << "; 错误代码:" << status);
+    }
+    pjsip_dlg_inc_lock(pdlg);
+    //status = pjsip_dlg_add_usage(pdlg, &m_module, nullptr);
+    if (PJ_SUCCESS != status)
+    {
+        LOG_ERROR_PJ("添加自定义模块失败:" << error_to_str(status) << "; 错误代码:" << status);
+    }
+    else
+    {
+        pjsip_inv_session *p_inv = nullptr;
+        status = pjsip_inv_create_uac(pdlg, nullptr, 0, &p_inv);
+        pjsip_tx_data *tdata = nullptr;
+        status = pjsip_inv_invite(p_inv, &tdata);
+        status = pjsip_inv_send_msg(p_inv, tdata);
+        int c = 0;
+        /*
+        pjsip_tx_data *tdata = nullptr;
+        status = pjsip_dlg_create_request(pdlg, &pjsip_invite_method, 1, &tdata);
+        if (PJ_SUCCESS != status)
+        {
+            LOG_ERROR_PJ("创建请求失败:" << error_to_str(status) << "; 错误代码:" << status);
+        }
+        else
+        {
+            char tmp[128] = {0};
+            pjsip_hdr_print_on(pjsip_msg_find_hdr(tdata->msg, pjsip_hdr_e::PJSIP_H_VIA, nullptr), tmp, 127);
+            status = pjsip_dlg_send_request(pdlg, tdata, -1, nullptr);
+            LOG_DEBUG_PJ(tdata->buf.start);
+            pjsip_hdr_print_on(pjsip_msg_find_hdr(tdata->msg, pjsip_hdr_e::PJSIP_H_VIA, nullptr), tmp, 127);
+            if (PJ_SUCCESS != status)
+            {
+                LOG_ERROR_PJ("发送请求失败:" << error_to_str(status) << "; 错误代码:" << status);
+            }
+        }
+        */
+    }
+
+    pjsip_dlg_dec_lock(pdlg);
+}
+
+std::string server_sip::error_to_str(const pj_status_t &status)
+{
+    char str_tmp[128] = {0};
+    pjsip_strerror(status, str_tmp, 127);
+    return std::string(str_tmp);
+}
+
+bool server_sip::is_equal(const char *p1, const pj_str_t &s2)
+{
+    if (nullptr == p1 || nullptr == s2.ptr)
+    {
+        return false;
+    }
+    return 0 == memcmp(p1, s2.ptr, std::min<std::size_t>(sizeof(p1), s2.slen));
+}
+
+std::string server_sip::to_str(const pj_str_t &s)
+{
+    if (nullptr == s.ptr || 0 == s.slen)
+    {
+        return "";
+    }
+    return std::string(s.ptr, s.slen);
+}
+
+std::string server_sip::ptime_to_register_date()
+{
     try
     {
         auto time_current = boost::posix_time::second_clock::local_time();
         std::stringstream ss;
         char fill_char = '0';
         auto date = time_current.date();
-        ss  << std::setw(4) << std::setfill(fill_char)<<static_cast<int>(date.year())<<"-";
-        ss  << std::setw(2) << std::setfill(fill_char)<<static_cast<int>(date.month())<<"-";
-        ss  << std::setw(2) << std::setfill(fill_char)<<static_cast<int>(date.day());
+        ss << std::setw(4) << std::setfill(fill_char) << static_cast<int>(date.year()) << "-";
+        ss << std::setw(2) << std::setfill(fill_char) << static_cast<int>(date.month()) << "-";
+        ss << std::setw(2) << std::setfill(fill_char) << static_cast<int>(date.day());
         ss << "T";
         auto td = time_current.time_of_day();
-        ss  << std::setw(2) << std::setfill(fill_char)<< boost::date_time::absolute_value(td.hours()) << ":";
-        ss  << std::setw(2) << std::setfill(fill_char)<< boost::date_time::absolute_value(td.minutes()) << ":";
-        ss  << std::setw(2) << std::setfill(fill_char)<< boost::date_time::absolute_value(td.seconds());
-        ss  << "." << std::setw(boost::posix_time::time_duration::num_fractional_digits())<<std::setw(3)<< std::setfill(fill_char)<< boost::date_time::absolute_value(td.fractional_seconds());
+        ss << std::setw(2) << std::setfill(fill_char) << boost::date_time::absolute_value(td.hours()) << ":";
+        ss << std::setw(2) << std::setfill(fill_char) << boost::date_time::absolute_value(td.minutes()) << ":";
+        ss << std::setw(2) << std::setfill(fill_char) << boost::date_time::absolute_value(td.seconds());
+        ss << "." << std::setw(boost::posix_time::time_duration::num_fractional_digits()) << std::setw(3) << std::setfill(fill_char) << boost::date_time::absolute_value(td.fractional_seconds());
         return ss.str();
     }
-    catch(const std::exception&)
+    catch (const std::exception &)
     {
     }
     return "";
@@ -256,6 +428,8 @@ pj_bool_t server_sip::on_rx_response(pjsip_rx_data *rdata)
 
 pj_bool_t server_sip::on_tx_request(pjsip_tx_data *tdata)
 {
+    LOG_DEBUG_PJ(tdata->buf.start);
+
     LOG_DEBUG_PJ("on_tx_request");
     return PJ_TRUE;
 }

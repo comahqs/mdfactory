@@ -8,7 +8,7 @@
 #include <pjsip.h>
 #include <pjlib-util.h>
 #include <pjlib.h>
-
+#include <pjsip_ua.h>
 
 class server_sip : public plugin
 {
@@ -25,6 +25,10 @@ protected:
     static void on_tsx_state(pjsip_transaction *tsx, pjsip_event *event);
     static int worker_thread(void *arg);
     static std::string ptime_to_register_date();
+    static bool is_equal(const char* p1, const pj_str_t& s2);
+    static std::string to_str(const pj_str_t& s);
+    static void start_dlg_device_search(pjsip_rx_data *rdata);
+    static std::string error_to_str(const pj_status_t& status);
 
     int decode_sdp(info_param_ptr &, const char **, const char **);
 
@@ -34,7 +38,8 @@ protected:
     pj_bool_t m_flag;
     std::pair<pjsip_endpoint*, pj_bool_t*> m_thread_params;
     int m_port = 0;
-    struct pjsip_module m_module;
+    static struct pjsip_module m_module;
+    static pjsip_inv_callback m_inv_callback;
 };
 typedef std::shared_ptr<server_sip> server_sip_ptr;
 
