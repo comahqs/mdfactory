@@ -10,36 +10,46 @@
 #include <pjlib.h>
 #include <pjsip_ua.h>
 
-class server_sip : public plugin
+
+class server_sip
 {
 public:
-    server_sip(const int& port);
     virtual ~server_sip();
-    virtual bool start();
+    virtual bool start(const int& port);
     virtual void stop();
+
+	static std::shared_ptr<server_sip> get_instance();
 protected:
-    static pj_bool_t on_rx_request(pjsip_rx_data *rdata);
-    static pj_bool_t on_rx_response(pjsip_rx_data *rdata);
-    static pj_bool_t on_tx_request(pjsip_tx_data *tdata);
-    static pj_bool_t on_tx_response(pjsip_tx_data *tdata);
-    static void on_tsx_state(pjsip_transaction *tsx, pjsip_event *event);
-    static int worker_thread(void *arg);
-    static std::string ptime_to_register_date();
-    static bool is_equal(const char* p1, const pj_str_t& s2);
-    static std::string to_str(const pj_str_t& s);
-    static void start_dlg_device_search(pjsip_rx_data *rdata);
-    static std::string error_to_str(const pj_status_t& status);
+    static pj_bool_t at_rx_request(pjsip_rx_data *rdata);
+    static pj_bool_t at_rx_response(pjsip_rx_data *rdata);
+    static pj_status_t at_tx_request(pjsip_tx_data *tdata);
+    static pj_status_t at_tx_response(pjsip_tx_data *tdata);
+	static void at_tsx_state(pjsip_transaction *tsx, pjsip_event *event);
+	static int worker_thread(void *arg);
+
+	server_sip();
+	pj_bool_t on_rx_request(pjsip_rx_data *rdata);
+	pj_bool_t on_rx_response(pjsip_rx_data *rdata);
+	pj_status_t on_tx_request(pjsip_tx_data *tdata);
+	pj_status_t on_tx_response(pjsip_tx_data *tdata);
+	void on_tsx_state(pjsip_transaction *tsx, pjsip_event *event);
+
+    std::string ptime_to_register_date();
+    bool is_equal(const char* p1, const pj_str_t& s2);
+    std::string to_str(const pj_str_t& s);
+    void start_dlg_device_search(pjsip_rx_data *rdata);
+    std::string error_to_str(const pj_status_t& status);
 
     int decode_sdp(info_param_ptr &, const char **, const char **);
 
-    static pj_caching_pool m_cp;
+	static std::shared_ptr<server_sip> s_instance;
+
+    pj_caching_pool m_cp;
     pj_thread_t *mp_thread = nullptr;
-    static pjsip_endpoint *mp_sip_endpt;
+    pjsip_endpoint *mp_sip_endpt;
     pj_bool_t m_flag;
-    std::pair<pjsip_endpoint*, pj_bool_t*> m_thread_params;
-    int m_port = 0;
-    static struct pjsip_module m_module;
-    static pjsip_inv_callback m_inv_callback;
+    struct pjsip_module m_module;
+    pjsip_inv_callback m_inv_callback;
 };
 typedef std::shared_ptr<server_sip> server_sip_ptr;
 

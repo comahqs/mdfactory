@@ -1,7 +1,6 @@
 ﻿#include "server_sip.h"
 #include "utility_tool.h"
 #include "error_code.h"
-#include "module_timer.h"
 #include <boost/format.hpp>
 #include <sstream>
 #include <pjsip/sip_auth_parser.h>
@@ -32,13 +31,16 @@
         PJ_LOG(4, ("server_sip.cpp", tmp_stream.str().c_str())); \
     }
 
-pj_caching_pool server_sip::m_cp;
-pjsip_endpoint *server_sip::mp_sip_endpt = nullptr;
-struct pjsip_module server_sip::m_module;
-pjsip_inv_callback server_sip::m_inv_callback;
 
+std::shared_ptr<server_sip> server_sip::s_instance = nullptr;
 
-
+std::shared_ptr<server_sip> server_sip::get_instance() {
+	if (!s_instance)
+	{
+		s_instance = std::shared_ptr<server_sip>(new server_sip());
+	}
+	return s_instance;
+}
 
 void OnStateChanged(pjsip_inv_session *inv, pjsip_event *e){
     LOG_DEBUG_PJ("OnStateChanged");
@@ -60,7 +62,7 @@ void OnTsxStateChanged(pjsip_inv_session *inv, pjsip_transaction *tsx, pjsip_eve
     LOG_DEBUG_PJ("OnSendAck");
  }
 
-server_sip::server_sip(const int &port) : m_port(port)
+server_sip::server_sip()
 {
 }
 
@@ -68,7 +70,7 @@ server_sip::~server_sip()
 {
 }
 
-bool server_sip::start()
+bool server_sip::start(const int& port)
 {
     pj_status_t status;
 
@@ -91,7 +93,7 @@ bool server_sip::start()
     pj_caching_pool_init(&m_cp, &pj_pool_factory_default_policy, 0);
 
     /* Create the endpoint: */
-    status = pjsip_endpt_create(&m_cp.factory, "sipstateless",
+    status = pjsip_endpt_create(&m_cp.factory, nullptr,
                                 &mp_sip_endpt);
     if (PJ_SUCCESS != status)
     {
@@ -106,7 +108,7 @@ bool server_sip::start()
 
     addr.sin_family = pj_AF_INET();
     addr.sin_addr.s_addr = 0;
-    addr.sin_port = pj_htons(static_cast<pj_uint16_t>(m_port));
+    addr.sin_port = pj_htons(static_cast<pj_uint16_t>(port));
 
     status = pjsip_udp_transport_start(mp_sip_endpt, &addr, nullptr, 1, nullptr);
     if (status != PJ_SUCCESS)
@@ -139,11 +141,11 @@ bool server_sip::start()
     m_module.start = nullptr;
     m_module.stop = nullptr;
     m_module.priority = PJSIP_MOD_PRIORITY_APPLICATION;
-    m_module.on_rx_request = &server_sip::on_rx_request;
-    m_module.on_rx_response = &server_sip::on_rx_response;
-    m_module.on_tx_request = &server_sip::on_tx_request;
-    m_module.on_tx_response = nullptr;
-    m_module.on_tsx_state = &server_sip::on_tsx_state;
+    m_module.on_rx_request = &server_sip::at_rx_request;
+    m_module.on_rx_response = &server_sip::at_rx_response;
+    m_module.on_tx_request = &server_sip::at_tx_request;
+    m_module.on_tx_response = &server_sip::at_tx_response;
+    m_module.on_tsx_state = &server_sip::at_tsx_state;
 
     status = pjsip_endpt_register_module(mp_sip_endpt, &m_module);
     if (status != PJ_SUCCESS)
@@ -167,7 +169,7 @@ bool server_sip::start()
     m_inv_callback.on_send_ack = &OnSendAck;
     status = pjsip_inv_usage_init(mp_sip_endpt, &m_inv_callback);
 
-    auto pool = pjsip_endpt_create_pool(mp_sip_endpt, "", 1000, 1000);
+    auto pool = pjsip_endpt_create_pool(mp_sip_endpt, "server_sip", 1000, 1000);
     if (nullptr == pool || !pool)
     {
         LOG_ERROR_PJ("创建内存池失败:" << status);
@@ -175,9 +177,7 @@ bool server_sip::start()
     }
 
     m_flag = PJ_TRUE;
-    m_thread_params.first = mp_sip_endpt;
-    m_thread_params.second = &m_flag;
-    status = pj_thread_create(pool, "", server_sip::worker_thread, &m_thread_params, 0, 0, &mp_thread);
+    status = pj_thread_create(pool, "server_sip", server_sip::worker_thread, this, 0, 0, &mp_thread);
     if (PJ_SUCCESS != status)
     {
         LOG_ERROR_PJ("创建工作线程失败:" << status);
@@ -190,12 +190,49 @@ void server_sip::stop()
 {
 }
 
+pj_bool_t server_sip::at_rx_request(pjsip_rx_data *rdata) {
+	if (s_instance)
+	{
+		return s_instance->on_rx_request(rdata);
+	}
+	return PJ_FALSE;
+}
+
+pj_bool_t server_sip::at_rx_response(pjsip_rx_data *rdata) {
+	if (s_instance)
+	{
+		return s_instance->on_rx_response(rdata);
+	}
+	return PJ_FALSE;
+}
+
+pj_status_t server_sip::at_tx_request(pjsip_tx_data *tdata) {
+	if (s_instance)
+	{
+		return s_instance->on_tx_request(tdata);
+	}
+	return PJ_SUCCESS;
+}
+
+pj_status_t server_sip::at_tx_response(pjsip_tx_data *tdata) {
+	if (s_instance)
+	{
+		return s_instance->on_tx_response(tdata);
+	}
+	return PJ_SUCCESS;
+}
+
+void server_sip::at_tsx_state(pjsip_transaction *tsx, pjsip_event *event) {
+	if (s_instance)
+	{
+		return s_instance->on_tsx_state(tsx, event);
+	}
+}
+
 pj_bool_t server_sip::on_rx_request(pjsip_rx_data *rdata)
 {
     LOG_DEBUG_PJ("on_rx_request");
     pj_status_t status;
-    auto p = pjsip_rdata_get_dlg(rdata);
-    auto t = pjsip_rdata_get_tsx(rdata);
     if (pjsip_method_e::PJSIP_REGISTER_METHOD == rdata->msg_info.cseq->method.id)
     {
         // 注册与注销
@@ -276,12 +313,12 @@ pj_bool_t server_sip::on_rx_request(pjsip_rx_data *rdata)
                 return PJ_FALSE;
             }
             LOG_INFO_PJ(name << "成功");
-            start_dlg_device_search(rdata);
             return PJ_TRUE;
         }
     }
     else if (is_equal("MESSAGE", rdata->msg_info.cseq->method.name))
     {
+		auto tsx = pjsip_rdata_get_tsx(rdata);
         if (is_equal("Application", rdata->msg_info.ctype->media.type) && is_equal("MANSCDP+xml", rdata->msg_info.ctype->media.subtype))
         {
             // 解析XML
@@ -426,18 +463,16 @@ pj_bool_t server_sip::on_rx_response(pjsip_rx_data *rdata)
     return PJ_FALSE;
 }
 
-pj_bool_t server_sip::on_tx_request(pjsip_tx_data *tdata)
+pj_status_t server_sip::on_tx_request(pjsip_tx_data *tdata)
 {
-    LOG_DEBUG_PJ(tdata->buf.start);
-
     LOG_DEBUG_PJ("on_tx_request");
-    return PJ_TRUE;
+    return PJ_SUCCESS;
 }
 
-pj_bool_t server_sip::on_tx_response(pjsip_tx_data *tdata)
+pj_status_t server_sip::on_tx_response(pjsip_tx_data *tdata)
 {
     LOG_DEBUG_PJ("on_tx_response");
-    return PJ_TRUE;
+    return PJ_SUCCESS;
 }
 
 void server_sip::on_tsx_state(pjsip_transaction *tsx, pjsip_event *event)
@@ -448,16 +483,16 @@ void server_sip::on_tsx_state(pjsip_transaction *tsx, pjsip_event *event)
 int server_sip::worker_thread(void *arg)
 {
     LOG_INFO_PJ("工作线程开始");
-    auto pparams = reinterpret_cast<std::pair<pjsip_endpoint *, pj_bool_t *> *>(arg);
-    if (nullptr == pparams)
+    auto psip = reinterpret_cast<server_sip *>(arg);
+    if (nullptr == psip)
     {
         LOG_ERROR_PJ("工作线程参数错误");
         return -1;
     }
-    while ((pparams->second))
+    while (psip->m_flag)
     {
         pj_time_val timeout = {0, 500};
-        pjsip_endpt_handle_events(pparams->first, &timeout);
+        pjsip_endpt_handle_events(psip->mp_sip_endpt, &timeout);
     }
     LOG_INFO_PJ("工作线程结束");
     return 0;
