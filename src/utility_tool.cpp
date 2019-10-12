@@ -60,3 +60,15 @@ std::string ptime_to_str(const boost::posix_time::ptime& time){
     }
     return "";
 }
+
+const char* get_file_name(const char* path) {
+	const char* p_end = path + strlen(path);
+	for (auto p = p_end; p >= path; --p)
+	{
+		if ('/' == *p || '\\' == *p)
+		{
+			return p + 1;
+		}
+	}
+	return path;
+}

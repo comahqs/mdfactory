@@ -10,6 +10,7 @@
 #include <pjlib.h>
 #include <pjsip_ua.h>
 #include <pjmedia.h>
+#include "module_media.h"
 
 class info_dlg {
 public:
@@ -95,6 +96,7 @@ protected:
 	int m_port;
 	pj_pool_t *mp_pool;
 	std::map<std::string, info_dlg_ptr> m_dlgs;
+	
 };
 typedef std::shared_ptr<server_sip> server_sip_ptr;
 

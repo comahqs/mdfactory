@@ -8,30 +8,7 @@
 
 
 
-#define LOG_ERROR_PJ(MSG)                                        \
-    {                                                            \
-        std::stringstream tmp_stream;                            \
-        tmp_stream << MSG;                                       \
-        PJ_LOG(1, ("server_sip.cpp", tmp_stream.str().c_str())); \
-    }
-#define LOG_WARN_PJ(MSG)                                         \
-    {                                                            \
-        std::stringstream tmp_stream;                            \
-        tmp_stream << MSG;                                       \
-        PJ_LOG(2, ("server_sip.cpp", tmp_stream.str().c_str())); \
-    }
-#define LOG_INFO_PJ(MSG)                                         \
-    {                                                            \
-        std::stringstream tmp_stream;                            \
-        tmp_stream << MSG;                                       \
-        PJ_LOG(3, ("server_sip.cpp", tmp_stream.str().c_str())); \
-    }
-#define LOG_DEBUG_PJ(MSG)                                        \
-    {                                                            \
-        std::stringstream tmp_stream;                            \
-        tmp_stream << MSG;                                       \
-        PJ_LOG(4, ("server_sip.cpp", tmp_stream.str().c_str())); \
-    }
+
 
 
 
@@ -58,6 +35,8 @@
 
 std::shared_ptr<server_sip> server_sip::s_instance = nullptr;
 int server_sip::s_module_id = 0;
+
+static module_media_ptr mp_media;
 
 std::shared_ptr<server_sip> server_sip::get_instance() {
 	if (!s_instance)
@@ -119,6 +98,9 @@ server_sip::~server_sip()
 
 bool server_sip::start(const int& port)
 {
+	mp_media = std::make_shared<module_media>();
+	mp_media->start();
+
     pj_status_t status;
 
     /* Must init PJLIB first: */
@@ -235,7 +217,7 @@ bool server_sip::start(const int& port)
     m_inv_callback.on_send_ack = &at_send_ack;
     status = pjsip_inv_usage_init(mp_sip_endpt, &m_inv_callback);
 
-    mp_pool = pjsip_endpt_create_pool(mp_sip_endpt, "server_sip", 1000, 1000);
+    mp_pool = pjsip_endpt_create_pool(mp_sip_endpt, "server_sip", 10000, 10000);
     if (nullptr == mp_pool)
     {
         LOG_ERROR_PJ("创建内存池失败:" << status);
@@ -616,7 +598,7 @@ int server_sip::worker_thread(void *arg)
     }
     while (psip->m_flag)
     {
-        pj_time_val timeout = {0, 500};
+        pj_time_val timeout = {0, 10};
         pjsip_endpt_handle_events(psip->mp_sip_endpt, &timeout);
     }
     LOG_INFO_PJ("工作线程结束");
@@ -842,7 +824,7 @@ bool server_sip::start_play(const std::string& id_channel, const std::string& id
 	m->attr[m->attr_count++] = attr;
 
 	// 96-PS格式；97-MPEG4格式；98-H264格式  默认为98
-	int format = 96;
+	int format = 98;
 	if (96 == format)
 	{
 		m->desc.fmt[0] = pj_str("96");
@@ -1191,6 +1173,14 @@ void server_sip::at_rx_rtp_ps(void *user_data, void *pkt, pj_ssize_t size) {
 		LOG_ERROR_PJ("多媒体数据解析失败");
 		return;
 	}
+	static int sindex = 0;
+	int seq = (((hdr->seq & 0xFF) << 8) | ((hdr->seq >> 8) & 0xFF));
+	//LOG_DEBUG_PJ("SEQ:" << seq << ";  time:" << hdr->ts << "; index:" << sindex++ << "; 数据包:"<< size);
+	if (seq != sindex)
+	{
+		LOG_DEBUG_PJ("SEQ:" << seq << ";  time:" << hdr->ts << "; index:" << sindex++ << "; 数据包:" << size);
+	}
+	sindex++;
 
 	// 数据在payload
 	decode_ps(payload, payload_len);
@@ -1223,7 +1213,7 @@ void server_sip::at_rx_rtp_h264(void *user_data, void *pkt, pj_ssize_t size) {
 	}
 
 	// 数据在payload
-	LOG_DEBUG_PJ("收到多媒体数据[h264]，数据长度:" << payload_len);
+	mp_media->write(reinterpret_cast<const unsigned char*>(payload), payload_len);
 
 	// rtp会话信息更新
 	pjmedia_rtp_session_update(&pinfo->session, hdr, nullptr);
@@ -1235,87 +1225,149 @@ void server_sip::decode_ps(const void *payload, unsigned payload_len) {
 #define CHECK_LEN(MIN) {if (MIN > len){return;}}
 #define GET_LEN_2(PBUFFER) ((((*(PBUFFER))<<8) | (*(PBUFFER+1))) & 0xFFFF)
 
+	static int s_last_offset = 0;
+
 	auto pbuffer = reinterpret_cast<const unsigned char*>(payload);
-	std::size_t len = payload_len;
+	int len = payload_len;
+	if (0 < s_last_offset)
+	{
+		//LOG_DEBUG_PJ("还需:" << s_last_offset << "; 输入:" << len << "; 差额:"<<(s_last_offset - len));
+		if (s_last_offset < len)
+		{
+			// 够了，还有剩余
+			mp_media->write(pbuffer, s_last_offset);
+			len -= s_last_offset;
+			pbuffer += s_last_offset;
+			s_last_offset = 0;
+
+			//LOG_DEBUG_PJ("开头:"<<(boost::format("%02X%02X%02X%02X%02X") % static_cast<int>(*(pbuffer + 0)) % static_cast<int>(*(pbuffer + 1)) % static_cast<int>(*(pbuffer + 2)) % static_cast<int>(*(pbuffer + 3)) % static_cast<int>(*(pbuffer + 4))).str());
+		}
+		else {
+			// 接收的数据还不够
+			mp_media->write(pbuffer, len);
+			s_last_offset -= len;
+			return;
+		}
+	}
+
+	
+
+	unsigned char tmp_frame[2048] = { 0 };
+	std::size_t len_frame = 0;
+	std::size_t frame_offset = 0;
+
 	while (4 <= len)
 	{
-		//寻找PS头
-		if (!CHECK_DATA(0x00, 0x00, 0x00, 0xBA, pbuffer))
+		if (CHECK_DATA(0x00, 0x00, 0x01, 0xBA, pbuffer))
 		{
-			--len;
-			pbuffer += 1;
-			continue;
-		}
-		// PS头至少14字节，第14字节的后3位定义了扩展长度
-		if (14 > len)
-		{
-			--len;
-			pbuffer += 1;
-			continue;
-		}
-		std::size_t len_ps_header = (*(pbuffer + 13) & 0x07);
-		len = len - 14 - len_ps_header;
-		pbuffer = pbuffer + 14 + len_ps_header;
-
-		while (4 <= len)
-		{
-			if (CHECK_DATA(0x00,0x00,0x01,0xE0, pbuffer))
+			// PS头至少14字节，第14字节的后3位定义了扩展长度
+			if (14 > len)
 			{
-				// 非I帧，PES包
-				// 至少9字节
-				CHECK_LEN(9);
-				// PES包长度
-				std::size_t len_pes = GET_LEN_2(pbuffer+4);
-				std::size_t len_pes_stuffing = *(pbuffer + 8);
-				std::size_t len_data = len_pes - 2 - 1 - len_pes_stuffing;
-				if (0 < len_data)
-				{
-					const unsigned char* pdata = pbuffer + 9 + len_pes_stuffing;
-
-					// H264数据
-				}
-				len = len - 6 - len_pes;
-				pbuffer = pbuffer + 6 + len_pes;
-			}else if (CHECK_DATA(0x00, 0x00, 0x01, 0xBC, pbuffer))
-			{
-				// I帧，解析Stream Map
-				CHECK_LEN(6);
-
-				std::size_t len_stream = GET_LEN_2(pbuffer + 4);
-				len = len - 6 - len_stream;
-				pbuffer = pbuffer + 6 + len_stream;
-			}else if (CHECK_DATA(0x00, 0x00, 0x01, 0xC0, pbuffer))
-			{
-				// 音频数据
-				CHECK_LEN(6);
-
-				std::size_t len_stream = GET_LEN_2(pbuffer + 4);
-				len = len - 6 - len_stream;
-				pbuffer = pbuffer + 6 + len_stream;
-			}
-			else if (CHECK_DATA(0x00, 0x00, 0x01, 0xBD, pbuffer))
-			{
-				// 私有数据
-				CHECK_LEN(6);
-
-				std::size_t len_stream = GET_LEN_2(pbuffer + 4);
-				len = len - 6 - len_stream;
-				pbuffer = pbuffer + 6 + len_stream;
-			}
-			else if (CHECK_DATA(0x00, 0x00, 0x01, 0xBB, pbuffer))
-			{
-				// 标题数据
-				CHECK_LEN(6);
-
-				std::size_t len_stream = GET_LEN_2(pbuffer + 4);
-				len = len - 6 - len_stream;
-				pbuffer = pbuffer + 6 + len_stream;
-			}
-			else {
-				LOG_ERROR_PJ("无法识别的流类型:"<<*(pbuffer + 3));
 				return;
 			}
+			std::size_t len_ps_header = (*(pbuffer + 13) & 0x07);
+			len = len - 14 - len_ps_header;
+			pbuffer = pbuffer + 14 + len_ps_header;
+		}else if (CHECK_DATA(0x00, 0x00, 0x01, 0xE0, pbuffer))
+		{
+			// PES包
+			// 至少9字节
+			CHECK_LEN(9);
+			// PES包长度
+			int len_pes = GET_LEN_2(pbuffer + 4);
+			int len_pes_stuffing = *(pbuffer + 8);
+			int len_data = len_pes - 2 - 1 - len_pes_stuffing;
+			const unsigned char* pdata = pbuffer + 9 + len_pes_stuffing;
+			len = len - 9 - len_pes_stuffing;
+			pbuffer = pbuffer + 6 + len_pes;
+
+			if (0 < len_data)
+			{
+				if (len_data <= len)
+				{
+					memcpy(tmp_frame + frame_offset, pdata, len_data);
+					frame_offset += len_data;
+					len -= len_data;
+					//mp_media->write(pdata, len_data);
+				}
+				else {
+					//mp_media->write(pdata, len);
+					memcpy(tmp_frame + frame_offset, pdata, len);
+					frame_offset += len;
+					s_last_offset = len_data - len;
+					len = 0;
+				}
+			}
 		}
+		else if (CHECK_DATA(0x00, 0x00, 0x01, 0xBC, pbuffer))
+		{
+			// I帧，解析Stream Map
+			CHECK_LEN(6);
+
+			std::size_t len_stream = GET_LEN_2(pbuffer + 4);
+			len = len - 6 - len_stream;
+			pbuffer = pbuffer + 6 + len_stream;
+		}
+		else if (CHECK_DATA(0x00, 0x00, 0x01, 0xC0, pbuffer))
+		{
+			// 音频数据
+			CHECK_LEN(6);
+
+			std::size_t len_stream = GET_LEN_2(pbuffer + 4);
+			len = len - 6 - len_stream;
+			pbuffer = pbuffer + 6 + len_stream;
+			/*
+			auto pdata = pbuffer + 6;
+			auto len_data = len_stream;
+			len = len - 6;
+			pbuffer = pbuffer + 6 + len_stream;
+
+			if (0 < len_data)
+			{
+				if (len_data <= len)
+				{
+					memcpy(tmp_frame + frame_offset, pdata, len_data);
+					frame_offset += len_data;
+					len -= len_data;
+					//mp_media->write(pdata, len_data);
+				}
+				else {
+					//mp_media->write(pdata, len);
+					memcpy(tmp_frame + frame_offset, pdata, len);
+					frame_offset += len;
+					s_last_offset = len_data - len;
+					len = 0;
+				}
+			}
+			*/
+		}
+		else if (CHECK_DATA(0x00, 0x00, 0x01, 0xBD, pbuffer))
+		{
+			// 私有数据
+			CHECK_LEN(6);
+
+			std::size_t len_stream = GET_LEN_2(pbuffer + 4);
+			len = len - 6 - len_stream;
+			pbuffer = pbuffer + 6 + len_stream;
+		}
+		else if (CHECK_DATA(0x00, 0x00, 0x01, 0xBB, pbuffer))
+		{
+			// 标题数据
+			CHECK_LEN(6);
+
+			std::size_t len_stream = GET_LEN_2(pbuffer + 4);
+			len = len - 6 - len_stream;
+			pbuffer = pbuffer + 6 + len_stream;
+		}
+		else {
+			//LOG_ERROR_PJ("无法识别的流类型:" << *(pbuffer + 3));
+			return;
+		}
+	}
+
+	if (0 < frame_offset)
+	{
+		mp_media->write(tmp_frame, frame_offset);
 	}
 }
 

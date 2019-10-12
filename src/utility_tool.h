@@ -21,7 +21,32 @@ std::string ptime_to_str(const boost::posix_time::ptime& time);
 #define LOG_WARN(MSG) {std::stringstream tmp_stream;tmp_stream<<MSG;write_log("warn", utf8_to_ansi(tmp_stream.str()));}
 
 
+const char* get_file_name(const char* path);
 
+#define LOG_ERROR_PJ(MSG)                                        \
+    {                                                            \
+        std::stringstream tmp_stream;                            \
+        tmp_stream << MSG;                                       \
+        PJ_LOG(1, (get_file_name(__FILE__), tmp_stream.str().c_str())); \
+    }
+#define LOG_WARN_PJ(MSG)                                         \
+    {                                                            \
+        std::stringstream tmp_stream;                            \
+        tmp_stream << MSG;                                       \
+        PJ_LOG(2, (get_file_name(__FILE__), tmp_stream.str().c_str())); \
+    }
+#define LOG_INFO_PJ(MSG)                                         \
+    {                                                            \
+        std::stringstream tmp_stream;                            \
+        tmp_stream << MSG;                                       \
+        PJ_LOG(3, (get_file_name(__FILE__), tmp_stream.str().c_str())); \
+    }
+#define LOG_DEBUG_PJ(MSG)                                        \
+    {                                                            \
+        std::stringstream tmp_stream;                            \
+        tmp_stream << MSG;                                       \
+        PJ_LOG(4, (get_file_name(__FILE__), tmp_stream.str().c_str())); \
+    }
 
 
 
