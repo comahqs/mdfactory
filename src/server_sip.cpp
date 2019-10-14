@@ -598,7 +598,7 @@ int server_sip::worker_thread(void *arg)
     }
     while (psip->m_flag)
     {
-        pj_time_val timeout = {0, 10};
+        pj_time_val timeout = {0, 1};
         pjsip_endpt_handle_events(psip->mp_sip_endpt, &timeout);
     }
     LOG_INFO_PJ("工作线程结束");

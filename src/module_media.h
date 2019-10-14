@@ -2,6 +2,8 @@
 #define MODULE_MEDIA_H
 
 #include "plugin.h"
+#include <condition_variable>
+#include <thread>
 extern "C" {
 #include <libavcodec/avcodec.h>
 #include <libavformat/avformat.h>
@@ -15,20 +17,18 @@ public:
 
 protected:
 	bool is_idr_frame(const unsigned char* pbuffer, const std::size_t& len);
+	static int read(void *opaque, uint8_t *buf, int buf_size);
 
-	/*
 	unsigned char* mp_buffer_avio = nullptr;
 	AVIOContext * mp_ctx = nullptr;
 
 	unsigned char* mp_buffer = nullptr;
-	std::size_t m_buffer_offset = 0;
 	std::size_t m_buffer_len = 0;
-	AVInputFormat *mp_input_format = nullptr;
 	AVFormatContext *mp_input_format_cxt = nullptr;
-	*/
-
 	AVFormatContext *mp_output_format_cxt = nullptr;
-	AVStream *mp_output_stream = nullptr;
+
+	std::condition_variable_any m_condition;
+	std::mutex m_mutex_condition;
 };
 typedef std::shared_ptr<module_media> module_media_ptr;
 

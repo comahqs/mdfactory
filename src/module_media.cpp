@@ -2,10 +2,13 @@
 #include <boost/filesystem.hpp>
 #include "utility_tool.h"
 #include <pj/log.h>
+#include <pjlib.h>
 #include <iostream>
 
 #define BUF_SIZE 4096*500
 #define BUFFER_MAX 4096*500
+
+
 
 bool module_media::start() {
 	/*
@@ -125,6 +128,16 @@ int module_media::write(const unsigned char* pbuffer, const std::size_t& len_buf
 		}
 		return 0;
 	}
+	/*
+	static std::ofstream stream;
+	if (!stream.is_open())
+	{
+		stream.open("./ff.h264", std::ios::binary);
+	}
+	stream.write((const char*)pbuffer, len_buffer);
+	return  0;
+	*/
+	/*
 	if (nullptr == mp_output_format_cxt)
 	{
 		if (5 > len || !(0x00 ==*(pbuffer + 0) && 0x00 == *(pbuffer + 1) && 0x00 == *(pbuffer + 2) && 0x01 == *(pbuffer + 3) && 0x07 == (*(pbuffer + 4) & 0x1F)))
@@ -223,14 +236,6 @@ int module_media::write(const unsigned char* pbuffer, const std::size_t& len_buf
 		printf("============================\n");
 	}
 
-	/*
-	if (5 <= len && ((0x00 == *(pbuffer + 0) && 0x00 == *(pbuffer + 1) && 0x00 == *(pbuffer + 2) && 0x01 == *(pbuffer + 3) && 0x07 == (*(pbuffer + 4) & 0x1F))
-		 || (0x00 == *(pbuffer + 0) && 0x00 == *(pbuffer + 1) && 0x00 == *(pbuffer + 2) && 0x01 == *(pbuffer + 3) && 0x08 == (*(pbuffer + 4) & 0x1F))))
-	{
-		return 0;
-	}
-	*/
-
 	AVPacket pkt;
 	AVCodecContext *c = mp_output_stream->codec;
 	av_init_packet(&pkt);
@@ -250,115 +255,210 @@ int module_media::write(const unsigned char* pbuffer, const std::size_t& len_buf
 		LOG_ERROR_PJ("处理视频数据时发生错误:" << tmp_msg << "; 错误代码:"<<status);
 		return  -1;
 	}
+	*/
 
-
-	/*
+    if (nullptr == mp_buffer)
+    {
+		mp_buffer = (unsigned char*)av_mallocz(sizeof(unsigned char) * BUF_SIZE);
+    }
 	if (m_buffer_len + len > BUFFER_MAX)
 	{
 		return -2;
 	}
-	if (0 != m_buffer_offset)
-	{
-		memmove(mp_buffer, mp_buffer + m_buffer_offset, m_buffer_len - m_buffer_offset);
-		m_buffer_offset = 0;
-	}
 	memmove(mp_buffer + m_buffer_len, pbuffer, len);
 	m_buffer_len += len;
+	m_condition.notify_one();
 
-	if (nullptr == mp_input_format)
-	{
-		mp_buffer_avio = (unsigned char*)av_mallocz(sizeof(unsigned char) * BUF_SIZE);
-		mp_buffer = (unsigned char*)av_mallocz(sizeof(unsigned char) * BUFFER_MAX);
-		mp_ctx = avio_alloc_context(mp_buffer_avio, BUF_SIZE, 0, this, module_media::read_buffer, nullptr, nullptr);
-		if (!mp_ctx) {
-			return -1;
+	static std::thread s([this]() {
+		pj_thread_desc rtpdesc;
+		pj_thread_t *thread = 0;
+		if (!pj_thread_is_registered())
+		{
+			pj_thread_register(nullptr, rtpdesc, &thread);
 		}
-		if (av_probe_input_buffer(mp_ctx, &mp_input_format, "", nullptr, 0, 0) < 0) {
-			return -1;
-		}
-		mp_input_format_cxt = avformat_alloc_context();
-		mp_input_format_cxt->pb = mp_ctx;
-		if (avformat_open_input(&mp_input_format_cxt, "", mp_input_format, nullptr) < 0) {
-			return  -1;
-		}
-		if (avformat_find_stream_info(mp_input_format_cxt, nullptr) < 0) {
-			return -1;
-		}
-
-		int videoindex = -1;
-		int audioindex = -1;
-		for (int i = 0; i < mp_input_format_cxt->nb_streams; i++) {
-			if ((mp_input_format_cxt->streams[i]->codec->codec_type == AVMEDIA_TYPE_VIDEO) &&
-				(videoindex < 0)) {
-				videoindex = i;
+		if (nullptr == mp_input_format_cxt)
+		{
+			std::string file_output = "./1.flv";
+			if (boost::filesystem::exists(file_output))
+			{
+				boost::filesystem::remove(file_output);
 			}
-			if ((mp_input_format_cxt->streams[i]->codec->codec_type == AVMEDIA_TYPE_AUDIO) &&
-				(audioindex < 0)) {
-				audioindex = i;
+
+			mp_buffer_avio = (unsigned char*)av_mallocz(sizeof(unsigned char) * 1400);
+
+			auto pio_cxt = avio_alloc_context(mp_buffer_avio, 1400, 0, this, module_media::read, nullptr, nullptr);
+			if (!pio_cxt) {
+				return -1;
 			}
-		}
-
-		if (videoindex < 0 || audioindex < 0) {
+			/*
+			if (av_probe_input_buffer(pio_cxt, &mp_input_format, "", nullptr, 0, 0) < 0) {
 			return -1;
-		}
+			}
+			*/
+			mp_input_format_cxt = avformat_alloc_context();
+			mp_input_format_cxt->pb = pio_cxt;
+			mp_input_format_cxt->flags = AVFMT_FLAG_CUSTOM_IO;
+			if (avformat_open_input(&mp_input_format_cxt, "", nullptr, nullptr) < 0) {
+				return  -1;
+			}
+			if (avformat_find_stream_info(mp_input_format_cxt, nullptr) < 0) {
+				return -1;
+			}
 
-		AVStream *pVst, *pAst;
-		pVst = mp_input_format_cxt->streams[videoindex];
-		pAst = mp_input_format_cxt->streams[audioindex];
-
-		auto pVideoCodecCtx = pVst->codec;
-		auto pAudioCodecCtx = pAst->codec;
-
-		auto pVideoCodec = avcodec_find_decoder(pVideoCodecCtx->codec_id);
-		if (!pVideoCodec) {
-			return -1;
-		}
-		if (avcodec_open2(pVideoCodecCtx, pVideoCodec, nullptr) < 0) {
-			return -1;
-		}
-
-		auto pAudioCodec = avcodec_find_decoder(pAudioCodecCtx->codec_id);
-		if (!pAudioCodec) {
-			return -1;
-		}
-		if (avcodec_open2(pAudioCodecCtx, pAudioCodec, nullptr) < 0) {
-			return -1;
-		}
-	}
-
-	
-
-	
-
-	int got_picture;
-	uint8_t samples[AVCODEC_MAX_AUDIO_FRAME_SIZE * 3 / 2];
-	AVFrame *pframe = avcodec_alloc_frame();
-	AVPacket pkt;
-	av_init_packet(&pkt);
-
-	while (1) {
-		if (av_read_frame(mp_input_format_cxt, &pkt) >= 0) {
-
-			if (pkt.stream_index == videoindex) {
-				fprintf(stdout, "pkt.size=%d,pkt.pts=%lld, pkt.data=0x%x.", pkt.size, pkt.pts, (unsigned int)pkt.data);
-				avcodec_decode_video2(pVideoCodecCtx, pframe, &got_picture, &pkt);
-				if (got_picture) {
-					fprintf(stdout, "decode one video frame!\n");
+			AVCodecContext *p_input_video_code_ctx = nullptr;
+			{
+				AVCodec *pi_code = nullptr;
+				auto index_stream = av_find_best_stream(mp_input_format_cxt, AVMEDIA_TYPE_VIDEO, -1, -1, &(pi_code), 0);
+				if (0 > index_stream)
+				{
+					LOG_ERROR("获取视频索引失败:" << index_stream);
+					return -1;
+				}
+				auto p_input_video_stream = mp_input_format_cxt->streams[index_stream];
+				p_input_video_code_ctx = avcodec_alloc_context3(pi_code);
+				avcodec_parameters_to_context(p_input_video_code_ctx, p_input_video_stream->codecpar);
+				p_input_video_code_ctx->framerate = av_guess_frame_rate(mp_input_format_cxt, p_input_video_stream, nullptr);
+				auto ret = avcodec_open2(p_input_video_code_ctx, pi_code, nullptr);
+				if (ret < 0)
+				{
+					return -1;
 				}
 			}
-			else if (pkt.stream_index == audioindex) {
-				int frame_size = AVCODEC_MAX_AUDIO_FRAME_SIZE * 3 / 2;
-				if (avcodec_decode_audio3(pAudioCodecCtx, (int16_t *)samples, &frame_size, &pkt) >= 0) {
-					fprintf(stdout, "decode one audio frame!\n");
+
+
+			if (0 > avformat_alloc_output_context2(&mp_output_format_cxt, nullptr, nullptr, file_output.c_str()))
+			{
+				LOG_ERROR("打开输出流失败");
+				return -1;
+			}
+
+			if (!(mp_output_format_cxt->oformat->flags & AVFMT_NOFILE))
+			{
+				auto ret = avio_open(&(mp_output_format_cxt->pb), file_output.c_str(), AVIO_FLAG_WRITE);
+				if (ret < 0)
+				{
+					return -1;
 				}
 			}
-			av_free_packet(&pkt);
-		}
-	}
 
-	av_free(buf);
-	av_free(pframe);
-	free_queue(&recvqueue);
-	*/
+			{
+				auto p_output_video_stream = avformat_new_stream(mp_output_format_cxt, nullptr);
+				if (nullptr == p_output_video_stream)
+				{
+					LOG_ERROR("新建输出流失败");
+					return -1;
+				}
+
+				AVCodec *codec = avcodec_find_encoder(p_input_video_code_ctx->codec_id);
+				if (nullptr == codec)
+				{
+					return  -1;
+				}
+				auto p_output_video_code_ctx = avcodec_alloc_context3(codec);
+				p_output_video_code_ctx->width = p_input_video_code_ctx->width;
+				p_output_video_code_ctx->height = p_input_video_code_ctx->height;
+				p_output_video_code_ctx->sample_aspect_ratio = p_input_video_code_ctx->sample_aspect_ratio;
+				if (nullptr != codec->pix_fmts)
+				{
+					p_output_video_code_ctx->pix_fmt = codec->pix_fmts[0];
+				}
+				else
+				{
+					p_output_video_code_ctx->pix_fmt = p_input_video_code_ctx->pix_fmt;
+				}
+				//p_output_video_code_ctx->time_base = p_input_video_code_ctx->time_base;
+				p_output_video_code_ctx->framerate = av_make_q(1, 25);
+				
+				//p_output_video_code_ctx->bit_rate = p_input_video_code_ctx->bit_rate;
+
+				//auto ret = avcodec_open2(p_output_video_code_ctx, codec, nullptr);
+				auto ret = avcodec_open2(p_input_video_code_ctx, codec, nullptr);
+				if (0 > ret) {
+					LOG_ERROR("打开输出解码器失败:" << ret);
+					return -1;
+				}
+				avcodec_parameters_from_context(p_output_video_stream->codecpar, p_input_video_code_ctx);
+				p_output_video_stream->avg_frame_rate = av_make_q(25, 1);
+				p_output_video_stream->r_frame_rate = av_make_q(25, 1);
+				p_output_video_stream->time_base = av_make_q(1, 25);
+				//p_output_video_stream->avg_frame_rate = p_output_video_stream->avg_frame_rate;
+				//p_output_video_stream->r_frame_rate = p_output_video_stream->r_frame_rate;
+				//p_output_video_code_ctx->gop_size = 30;
+				//p_output_video_code_ctx->max_b_frames = 0;
+			}
+
+			auto ret = avformat_write_header(mp_output_format_cxt, nullptr);
+			if (ret < 0)
+			{
+				return  -1;
+			}
+
+			printf("==========输出文件信息==========\n");
+			av_dump_format(mp_output_format_cxt, 0, file_output.c_str(), 1);
+			printf("============================\n");
+		}
+
+
+		auto p_packet = av_packet_alloc();
+		while (true)
+		{
+			auto ret = av_read_frame(mp_input_format_cxt, p_packet);
+			if (0 != ret)
+			{
+				return 0;
+			}
+			static int sindex = 0;
+			p_packet->pts = sindex * 50;
+			p_packet->dts = p_packet->pts;
+			sindex++;
+			//av_packet_rescale_ts(p_packet, mp_output_format_cxt->streams[0]->codec->time_base, av_make_q(1, 25));
+
+			auto type = mp_input_format_cxt->streams[p_packet->stream_index]->codecpar->codec_type;
+			if (AVMEDIA_TYPE_VIDEO == type)
+			{
+				auto status = av_interleaved_write_frame(mp_output_format_cxt, p_packet);
+				if (status < 0)
+				{
+					char tmp_msg[1024] = { 0 };
+					av_strerror(status, tmp_msg, 1024);
+					LOG_ERROR_PJ("处理视频数据时发生错误:" << tmp_msg << "; 错误代码:" << status);
+					return  -1;
+				}
+			}
+			av_packet_unref(p_packet);
+		}
+		av_packet_free(&p_packet);
+	});
+
+	
 	return 0;
+}
+
+int module_media::read(void *opaque, uint8_t *buf, int buf_size) {
+	auto pmedia = reinterpret_cast<module_media*>(opaque);
+	if (nullptr == pmedia)
+	{
+		return  -1;
+	}
+	{
+		std::unique_lock<std::mutex> lock(pmedia->m_mutex_condition);
+		while (0 >= pmedia->m_buffer_len)
+		{
+			pmedia->m_condition.wait(lock);
+		}
+	}
+	if (pmedia->m_buffer_len >= buf_size)
+	{
+		memmove(buf, pmedia->mp_buffer, buf_size);
+		memmove(pmedia->mp_buffer, pmedia->mp_buffer + buf_size, pmedia->m_buffer_len - buf_size);
+		pmedia->m_buffer_len = pmedia->m_buffer_len - buf_size;
+		return buf_size;
+	}
+	else {
+		memmove(buf, pmedia->mp_buffer, pmedia->m_buffer_len);
+		auto len_move = pmedia->m_buffer_len;
+		pmedia->m_buffer_len = 0;
+		return len_move;
+	}
+	return  -1;
 }
