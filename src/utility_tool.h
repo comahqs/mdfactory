@@ -1,4 +1,4 @@
-﻿#ifndef UTILITY_TOOL_H
+#ifndef UTILITY_TOOL_H
 #define UTILITY_TOOL_H
 
 #include <iostream>

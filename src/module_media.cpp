@@ -1,4 +1,4 @@
-﻿#include "module_media.h"
+#include "module_media.h"
 #include <boost/filesystem.hpp>
 #include "utility_tool.h"
 #include <pj/log.h>
@@ -63,7 +63,6 @@ int module_media::write(const unsigned char* pbuffer, const std::size_t& len_buf
 	{
 		mp_exchange = std::make_shared<info_exchange>();
 		mp_coroutine = std::make_shared<boost::coroutines2::coroutine<void>::push_type>([this](boost::coroutines2::coroutine<void>::pull_type & sink) {
-			av_register_all();
 			if (nullptr == mp_input_format_cxt)
 			{
 				std::string file_output = "./1.flv";

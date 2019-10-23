@@ -1,4 +1,4 @@
-﻿#ifndef MODULE_MEDIA_H
+#ifndef MODULE_MEDIA_H
 #define MODULE_MEDIA_H
 
 #include "plugin.h"

@@ -1,10 +1,9 @@
-﻿#ifndef SERVER_SIP_H
+#ifndef SERVER_SIP_H
 #define SERVER_SIP_H
 
 #include "plugin.h"
 #include <map>
 #include <vector>
-#include "module_sip.h"
 #include <pjsip.h>
 #include <pjlib-util.h>
 #include <pjlib.h>

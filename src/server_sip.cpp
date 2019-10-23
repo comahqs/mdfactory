@@ -1,4 +1,4 @@
-﻿#include "server_sip.h"
+#include "server_sip.h"
 #include "utility_tool.h"
 #include "error_code.h"
 #include <boost/format.hpp>
@@ -368,11 +368,16 @@ pj_bool_t server_sip::on_rx_request(pjsip_rx_data *rdata)
 				pjsip_method m;
 				m.id = PJSIP_OTHER_METHOD;
 				m.name = pj_strdup3(rdata->tp_info.pool, "MESSAGE");
-				status = pjsip_endpt_create_request(mp_sip_endpt, &m, &pj_strdup3(rdata->tp_info.pool, "sip:34020000001320000001@192.168.2.64:5060"), &pj_strdup3(rdata->tp_info.pool, "sip:34020000002000000001@3402000000")
-				    , &pj_strdup3(rdata->tp_info.pool, "sip:34020000001320000001@3402000000"), &pj_strdup3(rdata->tp_info.pool, "sip:34020000002000000001@192.168.2.2:5060"), nullptr, -1, nullptr, &p_tdata);
-
-				p_tdata->msg->body = pjsip_msg_body_create(rdata->tp_info.pool, &pj_strdup3(rdata->tp_info.pool, "Application"), &pj_strdup3(rdata->tp_info.pool, "MANSCDP+xml")
-					, &pj_strdup3(rdata->tp_info.pool, "<?xml version=\"1.0\"?>\r\n<Query><CmdType>Catalog</CmdType><SN>2</SN><DeviceID>34020000001320000001</DeviceID></Query>"));
+				auto pj_target = pj_strdup3(rdata->tp_info.pool, "sip:34020000001320000001@192.168.2.64:5060");
+				auto pj_from = pj_strdup3(rdata->tp_info.pool, "sip:34020000002000000001@3402000000");
+				auto pj_to = pj_strdup3(rdata->tp_info.pool, "sip:34020000001320000001@3402000000");
+				auto pj_contact = pj_strdup3(rdata->tp_info.pool, "sip:34020000002000000001@192.168.2.2:5060");
+				status = pjsip_endpt_create_request(mp_sip_endpt, &m, &pj_target, &pj_from, &pj_to, &pj_contact, nullptr, -1, nullptr, &p_tdata);
+				
+				auto pj_type = pj_strdup3(rdata->tp_info.pool, "Application");
+				auto pj_subtype = pj_strdup3(rdata->tp_info.pool, "MANSCDP+xml");
+				auto pj_text = pj_strdup3(rdata->tp_info.pool, "<?xml version=\"1.0\"?>\r\n<Query><CmdType>Catalog</CmdType><SN>2</SN><DeviceID>34020000001320000001</DeviceID></Query>");
+				p_tdata->msg->body = pjsip_msg_body_create(rdata->tp_info.pool, &pj_type, &pj_subtype, &pj_text);
 				status = pjsip_endpt_send_request(mp_sip_endpt, p_tdata, -1, nullptr, nullptr);
 				if (PJ_SUCCESS != status)
 				{
@@ -792,15 +797,15 @@ bool server_sip::start_play(const std::string& id_channel, const std::string& id
 	sdp->origin.id = 0;
 	sdp->origin.user = pj_strdup3(mp_pool, id_channel.c_str());
 	sdp->origin.version = 0;
-	sdp->origin.net_type = pj_str("IN");
-	sdp->origin.addr_type = pj_str("IP4");
+	sdp->origin.net_type = pj_strdup3(mp_pool,"IN");
+	sdp->origin.addr_type = pj_strdup3(mp_pool,"IP4");
 	sdp->origin.addr = pj_strdup3(mp_pool, m_ip.c_str());
 	// 1-实时； 2-回放；3-下载
 	sdp->name = pj_strdup3(mp_pool, SDP_S_PLAY);
 
 	sdp->conn = (pjmedia_sdp_conn*)pj_pool_zalloc(mp_pool, sizeof(pjmedia_sdp_conn));
-	sdp->conn->net_type = pj_str("IN");
-	sdp->conn->addr_type = pj_str("IP4");
+	sdp->conn->net_type = pj_strdup3(mp_pool,"IN");
+	sdp->conn->addr_type = pj_strdup3(mp_pool,"IP4");
 	sdp->conn->addr = pj_strdup3(mp_pool, m_ip.c_str());
 	// start和stop都为0表示实时流
 	sdp->time.start = 0;
@@ -811,7 +816,7 @@ bool server_sip::start_play(const std::string& id_channel, const std::string& id
 	pjmedia_sdp_media *m = (pjmedia_sdp_media*)pj_pool_zalloc(mp_pool, sizeof(pjmedia_sdp_media));
 	sdp->media[0] = m;
 	// video表示是视频流，包括视频和音频
-	m->desc.media = pj_str("video");
+	m->desc.media = pj_strdup3(mp_pool,"video");
 	m->desc.port = get_rtp_port();
 	m->desc.port_count = 1;
 	m->desc.transport = pj_strdup3(mp_pool, "RTP/AVP");
@@ -827,33 +832,33 @@ bool server_sip::start_play(const std::string& id_channel, const std::string& id
 	int format = 98;
 	if (96 == format)
 	{
-		m->desc.fmt[0] = pj_str("96");
-		m->desc.fmt[1] = pj_str("98");
-		m->desc.fmt[2] = pj_str("97");
+		m->desc.fmt[0] = pj_strdup3(mp_pool,"96");
+		m->desc.fmt[1] = pj_strdup3(mp_pool,"98");
+		m->desc.fmt[2] = pj_strdup3(mp_pool,"97");
 		SDP_RTPMAP_ADD_ATT("rtpmap", SDP_RTPMAP_PS);
 		SDP_RTPMAP_ADD_ATT("rtpmap", SDP_RTPMAP_H264);
 		SDP_RTPMAP_ADD_ATT("rtpmap", SDP_RTPMAP_MPEG4);
 	}else if (97 == format)
 	{
-		m->desc.fmt[0] = pj_str("97");
-		m->desc.fmt[1] = pj_str("98");
-		m->desc.fmt[2] = pj_str("96");
+		m->desc.fmt[0] = pj_strdup3(mp_pool,"97");
+		m->desc.fmt[1] = pj_strdup3(mp_pool,"98");
+		m->desc.fmt[2] = pj_strdup3(mp_pool,"96");
 		SDP_RTPMAP_ADD_ATT("rtpmap", SDP_RTPMAP_MPEG4);
 		SDP_RTPMAP_ADD_ATT("rtpmap", SDP_RTPMAP_H264);
 		SDP_RTPMAP_ADD_ATT("rtpmap", SDP_RTPMAP_PS);
 	}else if (98 == format)
 	{
-		m->desc.fmt[0] = pj_str("98");
-		m->desc.fmt[1] = pj_str("96");
-		m->desc.fmt[2] = pj_str("97");
+		m->desc.fmt[0] = pj_strdup3(mp_pool,"98");
+		m->desc.fmt[1] = pj_strdup3(mp_pool,"96");
+		m->desc.fmt[2] = pj_strdup3(mp_pool,"97");
 		SDP_RTPMAP_ADD_ATT("rtpmap", SDP_RTPMAP_H264);
 		SDP_RTPMAP_ADD_ATT("rtpmap", SDP_RTPMAP_PS);
 		SDP_RTPMAP_ADD_ATT("rtpmap", SDP_RTPMAP_MPEG4);
 	}
 	else {
-		m->desc.fmt[0] = pj_str("98");
-		m->desc.fmt[1] = pj_str("96");
-		m->desc.fmt[2] = pj_str("97");
+		m->desc.fmt[0] = pj_strdup3(mp_pool,"98");
+		m->desc.fmt[1] = pj_strdup3(mp_pool,"96");
+		m->desc.fmt[2] = pj_strdup3(mp_pool,"97");
 		SDP_RTPMAP_ADD_ATT("rtpmap", SDP_RTPMAP_H264);
 		SDP_RTPMAP_ADD_ATT("rtpmap", SDP_RTPMAP_PS);
 		SDP_RTPMAP_ADD_ATT("rtpmap", SDP_RTPMAP_MPEG4);
